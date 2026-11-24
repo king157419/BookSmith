@@ -113,6 +113,11 @@ def test_retry_then_success_and_limit(home, monkeypatch, capsys):
     assert ws.main(["search", "y"]) == 5
     assert "次数已用完" in capsys.readouterr().err
     assert _state(home)["used"] == 2
+    # 记录文件损坏：按默认上限算，不会变成不限次数
+    (home / ".booksmith" / "websearch.json").write_text("{limit:3}", encoding="utf-8")
+    (home / ".booksmith" / "websearch.json").write_text(
+        json.dumps({"used": ws.DEFAULT_LIMIT, "log": []}), encoding="utf-8")
+    assert ws.main(["search", "z"]) == 5
 
 
 def test_401_not_retried_and_bad_input(home, monkeypatch, capsys):

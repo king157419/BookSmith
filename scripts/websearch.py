@@ -37,6 +37,7 @@ MAX_QUERY = 400
 MAX_URL = 2000
 DEFAULT_CHARS = 12000
 HARD_CHARS = 30000
+DEFAULT_LIMIT = 25           # websearch.json 缺失或损坏时的兜底上限
 RETRIES = 3
 TIMEOUT = 30
 
@@ -91,9 +92,14 @@ def _save_state(s: dict) -> None:
 def reserve(kind: str, target: str) -> int:
     """占一次额度并登记；返回这次调用在记录里的序号。超过上限抛错。"""
     s = _load_state()
-    limit = int(s.get("limit") or 0)
+    try:
+        limit = int(s.get("limit") or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    if limit <= 0:            # 记录文件缺失或损坏时也不能变成“不限次数”
+        limit = DEFAULT_LIMIT
     used = int(s.get("used") or 0)
-    if limit and used >= limit:
+    if used >= limit:
         raise WebSearchError(f"本任务的联网检索次数已用完（上限 {limit} 次）。用已经查到的资料完成任务，"
                              "其余需要核实的事实列入“待核实”。", 5)
     s["used"] = used + 1

@@ -1,0 +1,9 @@
+[Unit]
+Description=BookSmith: sync book repo with GitHub (fast-forward only)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=king
+Environment=GIT_SSH_COMMAND=ssh -o BatchMode=yes
+ExecStart=/bin/sh /home/king/BookSmith/deploy/sync_book.sh

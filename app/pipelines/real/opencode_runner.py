@@ -186,6 +186,7 @@ class OpenCodeRunner:
     def reset_websearch(self) -> None:
         """每个任务开始时调用一次（prepare 里）：清零次数、写入上限。"""
         p = self._websearch_state()
+        shutil.rmtree(p.parent / "extract-cache", ignore_errors=True)    # 页面缓存只在本任务内有效
         p.write_text(json.dumps({"limit": self.web_limit if self.web_search else 0, "used": 0, "log": []}),
                      encoding="utf-8")
 
@@ -216,7 +217,7 @@ class OpenCodeRunner:
             msg = f"{'写' if tool == 'write' else '改'} {f}"
             if status == "completed" and f:
                 self._edited.add(f)
-        elif tool == "bash" and WEBSEARCH_SCRIPT in (inp.get("command") or ""):
+        elif tool == "bash" and (inp.get("command") or "").startswith(f"python3 {WEBSEARCH_SCRIPT} "):
             cmd = (inp.get("command") or "").split(WEBSEARCH_SCRIPT, 1)[1].strip()
             what = "读网页" if cmd.startswith("extract") else "联网检索"
             msg = f"{what} {truncate(cmd.split(' ', 1)[1] if ' ' in cmd else cmd, 120)}"

@@ -18,6 +18,13 @@ from .flow import agent, build_and_fix, compose_summary, result, start_job, task
 SKILLS = ["booksmith-book", "booksmith-exercises"]
 
 
+def count_problems(body: str) -> int:
+    r"""数 body.tex 里的 \problem{…}：先去掉 LaTeX 注释（模型常在文件头写一行用法说明，
+    e2e 测试里因此把 3 道题数成了 4 道），也不数 \newcommand{\problem} 这类定义。"""
+    nc = re.sub(r"(?<!\\)%.*", "", body)
+    return len(re.findall(r"(?<!\{)\\problem\{", nc))
+
+
 def pdf_text(pdf: Path) -> str:
     try:
         p = subprocess.run(["pdftotext", "-layout", str(pdf), "-"], capture_output=True, timeout=120)
@@ -82,7 +89,7 @@ class ExercisesPipeline:
             n_s = len(re.findall(rf"(?m)^\s*{ch}\.\d+\s", ts))
             n_t = len(re.findall(rf"(?m)^\s*{ch}\.\d+\s", tt))
             body = (Path(ctx.workdir) / f"exercises/{nn}/body.tex").read_text(encoding="utf-8", errors="replace")
-            n_src = len(re.findall(r"\\problem\{", body))
+            n_src = count_problems(body)
             notes.append(f"body.tex 中 \\problem 共 {n_src} 道（要求 {count} 道）")
             if n_src and abs(n_src - int(count)) > 0:
                 notes.append(f"⚠ 题数与要求不一致：{n_src} ≠ {count}")

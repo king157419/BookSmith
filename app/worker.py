@@ -29,6 +29,25 @@ def _guess_kind(name: str) -> str:
             "log": "log", "txt": "log", "png": "png"}.get(ext, "md")
 
 
+def merge_cost(old_json: str | None, new: dict) -> dict:
+    """同一任务多次运行（newchapter 先出大纲、确认后写正文）时把用量累加，而不是用后一次覆盖前一次。"""
+    import json
+    try:
+        old = json.loads(old_json) if old_json else None
+    except (TypeError, ValueError):
+        old = None
+    if not isinstance(old, dict):
+        return dict(new)
+    out = dict(new)
+    for k, v in old.items():
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and isinstance(new.get(k), (int, float)):
+            out[k] = round(new[k] + v, 5)
+        elif k not in out:
+            out[k] = v
+    out["stages"] = int(old.get("stages") or 1) + 1
+    return out
+
+
 class Worker:
     def __init__(self, settings: Settings, db: DB, repo: BookRepo):
         self.settings = settings
@@ -146,7 +165,8 @@ class Worker:
         if getattr(result, "cost", None):
             try:
                 import json
-                db.update_task(tid, cost_json=json.dumps(result.cost, ensure_ascii=False))
+                db.update_task(tid, cost_json=json.dumps(
+                    merge_cost(task.get("cost_json"), result.cost), ensure_ascii=False))
             except Exception as e:  # 记用量失败不影响任务
                 logf("worker", f"记录用量失败：{e}", "warn")
 
@@ -168,6 +188,8 @@ class Worker:
 
     def _register_artifacts(self, tid: int, out_dir: Path, artifacts: list[dict]) -> None:
         out_real = out_dir.resolve()
+        # 同一任务可能运行多次（newchapter 大纲 + 正文）：同一个文件只登记一次
+        known = {str(Path(a["path"]).resolve()) for a in self.db.list_artifacts(tid)}
         for a in artifacts or []:
             try:
                 src = Path(a["path"])
@@ -182,6 +204,9 @@ class Worker:
                     dst = out_dir / Path(name).name
                     shutil.copyfile(src, dst)
                     src = dst
+                if str(src.resolve()) in known:
+                    continue
+                known.add(str(src.resolve()))
                 self.db.add_artifact(tid, name, str(src.resolve()), kind)
             except Exception as e:  # 单个产物出错不影响整体
                 self.db.add_event(tid, "worker", f"登记产物失败：{a!r}：{e}", "warn")

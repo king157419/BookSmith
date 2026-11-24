@@ -103,7 +103,7 @@ def task_header(job: Job, what: str) -> str:
         parts.append("## 审核意见（这是打回后的继续修改，优先处理这些意见）\n"
                      f"{fb}\n\n分支上已有上一轮的提交，先用 `git log --oneline {_base_name()}..HEAD` 和 "
                      f"`git diff {_base_name()}...HEAD --stat` 看清上一轮改了什么，在此基础上按意见修改。"
-                     "最终说明里逐条回应每条审核意见。")
+                     "最终说明的最前面加一节「## 审核意见处理」，按意见逐条写：已改（改在哪个文件哪个位置）或未改（理由）。")
     return "\n".join(parts)
 
 
@@ -217,6 +217,10 @@ def build_table(builds: list[BuildResult]) -> str:
 def compose_summary(job: Job, *, title: str, status_line: str, checks: CheckReport | None,
                     extra_sections: list[tuple[str, str]] | None = None) -> str:
     out = [f"## {title}", "", status_line, ""]
+    fb = (job.ctx.task.get("feedback") or "").strip()
+    if fb:
+        # 打回的返工任务：把本轮要处理的意见放在最前面，审核人对照说明和 diff 看是否逐条处理了
+        out += ["## 本轮要处理的审核意见（打回时填写）", "", "\n".join("> " + x for x in fb.splitlines()), ""]
     if job.agent_notes:
         out += ["## 智能体的说明", "", job.agent_notes[0], ""]
         if len(job.agent_notes) > 1:
@@ -237,12 +241,12 @@ def compose_summary(job: Job, *, title: str, status_line: str, checks: CheckRepo
     return "\n".join(out)
 
 
-def result(job: Job, status: str, summary: str, artifacts: list[dict]) -> Result:
+def result(job: Job, status: str, summary: str, artifacts: list[dict], notes_name: str = "说明.md") -> Result:
     finish_usage(job)
     # 用量写在最后（余额要等收尾后再查一次）
     summary = re.sub(r"## 用量\n\n.*\Z", "## 用量\n\n" + job.usage.markdown() + "\n", summary, flags=re.S)
     arts = [a for a in artifacts if a]
-    arts.append(write_artifact(job.ctx.out_dir, "说明.md", summary))
+    arts.append(write_artifact(job.ctx.out_dir, notes_name, summary))
     r = Result(status=status, summary=summary, artifacts=arts)
     try:
         r.cost = job.usage.as_dict()          # base.Result 有可选字段 cost 时由 worker 写入 cost_json

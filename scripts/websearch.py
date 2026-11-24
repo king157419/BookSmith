@@ -3,7 +3,9 @@
 
 用法（容器里，白名单只放行这两种写法）：
     python3 /app/scripts/websearch.py search "查询词" [--max N]      # 精简结果：标题、URL、发布日期、摘要
-    python3 /app/scripts/websearch.py extract https://example.com/page [--max-chars N]   # 页面正文（截断）
+    python3 /app/scripts/websearch.py extract https://example.com/page [--max-chars N] [--offset N] [--find 词]
+        # 页面正文：默认显示前 12000 字符；同一任务里读过的页面有缓存，翻页（--offset）、
+        # 找关键词附近的片段（--find）都读缓存，不再调用 API、不占次数
 
 安全设计：
 - key 只从 0600 文件 `$HOME/.booksmith/tavily.key` 读（由 OpenCodeRunner 启动时写入；HOME 是隔离目录）。
@@ -184,22 +186,67 @@ def format_search(query: str, data: dict) -> str:
     return "\n".join(out)
 
 
-def format_extract(url: str, data: dict, max_chars: int) -> str:
+def page_from_api(url: str, data: dict) -> dict:
     res = data.get("results") or []
     failed = data.get("failed_results") or []
-    out = [WARNING]
     if not res:
         why = clean((failed[0] or {}).get("error"), 200) if failed else "没有返回内容"
         raise WebSearchError(f"读取失败：{url}（{why}）。换一个来源。")
     r = res[0]
-    text = clean(r.get("raw_content"))
+    return {"url": clean(r.get("url") or url, 500), "text": clean(r.get("raw_content")),
+            "published_date": clean(r.get("published_date"), 40), "fetched": time.strftime("%Y-%m-%d")}
+
+
+def format_extract(page: dict, max_chars: int, offset: int = 0, find: str = "") -> str:
+    """offset：从第几个字符开始显示（翻页）；find：只显示关键词附近的片段（核对数字、定位章节用）。"""
+    text = page["text"]
     total = len(text)
-    out.append(f"页面：{clean(r.get('url') or url, 500)}（读取时间 {time.strftime('%Y-%m-%d')}，正文 {total} 字符"
-               + (f"，只显示前 {max_chars} 字符）" if total > max_chars else "）"))
-    if r.get("published_date"):
-        out.append(f"发布日期：{clean(r.get('published_date'), 40)}")
-    out += ["", "-----", text[:max_chars] + ("\n…（已截断）" if total > max_chars else ""), "-----", WARNING]
+    out = [WARNING, f"页面：{page['url']}（读取时间 {page['fetched']}，正文共 {total} 字符）"]
+    if page.get("published_date"):
+        out.append(f"发布日期：{page['published_date']}")
+    if find:
+        hits = [m.start() for m in re.finditer(re.escape(find), text, re.I)]
+        out.append(f"关键词“{find}”出现 {len(hits)} 处" + ("，下面是前后各约 600 字符的片段：" if hits else "。"))
+        parts, last_end, size = [], -1, 0
+        for h in hits:
+            a, b = max(0, h - 600, last_end), min(total, h + 600)
+            if a >= b:
+                continue
+            parts.append(f"[字符 {a}～{b}] " + text[a:b])
+            last_end, size = b, size + (b - a)
+            if size >= max_chars:
+                break
+        out += ["", "-----", "\n…\n".join(parts)[:max_chars], "-----"]
+    else:
+        offset = max(0, min(offset, total))
+        end = min(total, offset + max_chars)
+        out.append(f"显示第 {offset}～{end} 字符" + (
+            f"；后面还有 {total - end} 字符：用 --offset {end} 继续读，或用 --find 关键词 定位"
+            "（都读缓存，不占检索次数）" if end < total else "（已到结尾）"))
+        out += ["", "-----", text[offset:end], "-----"]
+    out.append(WARNING)
     return "\n".join(out)
+
+
+def _cache_path(url: str) -> Path:
+    import hashlib
+    return state_dir() / "extract-cache" / (hashlib.sha256(url.encode("utf-8")).hexdigest()[:32] + ".json")
+
+
+def load_cached(url: str) -> dict | None:
+    try:
+        return json.loads(_cache_path(url).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def save_cached(url: str, page: dict) -> None:
+    p = _cache_path(url)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(page, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------- 命令
@@ -219,17 +266,22 @@ def cmd_search(query: str, max_results: int) -> str:
     return format_search(query, data)
 
 
-def cmd_extract(url: str, max_chars: int) -> str:
+def cmd_extract(url: str, max_chars: int, offset: int = 0, find: str = "") -> str:
     url = url.strip()
     if not re.match(r"^https?://[^\s/]+", url, re.I) or len(url) > MAX_URL:
         raise WebSearchError("只能读取 http:// 或 https:// 开头的网页地址。", 2)
-    key = read_key()
-    idx = reserve("extract", url)
-    data = post("/extract", {"urls": [url], "extract_depth": "basic", "format": "markdown",
-                             "include_published_date": True}, key)
-    text = format_extract(url, data, max(1000, min(max_chars, HARD_CHARS)))
-    mark(idx, True, 1)
-    return text
+    find = clean(find).replace("\n", " ")[:100]
+    max_chars = max(1000, min(max_chars, HARD_CHARS))
+    key = read_key()                      # 不允许检索的任务连缓存也不给读
+    page = load_cached(url)               # 本任务里读过的页面：翻页、找关键词都读缓存
+    if page is None:
+        idx = reserve("extract", url)
+        data = post("/extract", {"urls": [url], "extract_depth": "basic", "format": "markdown",
+                                 "include_published_date": True}, key)
+        page = page_from_api(url, data)
+        save_cached(url, page)
+        mark(idx, True, 1)
+    return format_extract(page, max_chars, offset, find)
 
 
 class _Parser(argparse.ArgumentParser):
@@ -248,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("url")
     e.add_argument("--max-chars", type=int, default=DEFAULT_CHARS,
                    help=f"最多输出多少字符（默认 {DEFAULT_CHARS}，上限 {HARD_CHARS}）")
+    e.add_argument("--offset", type=int, default=0, help="从第几个字符开始显示（长页面翻页，读缓存不占次数）")
+    e.add_argument("--find", default="", help="只显示含这个关键词的片段（核对数字、定位章节）")
     a = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -257,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "search":
             print(cmd_search(a.query, a.max))
         else:
-            print(cmd_extract(a.url, a.max_chars))
+            print(cmd_extract(a.url, a.max_chars, a.offset, a.find))
         return 0
     except WebSearchError as ex:
         sys.stderr.write(f"websearch：{ex}\n")

@@ -82,13 +82,22 @@ def test_retry_then_success_and_limit(home, monkeypatch, capsys):
         calls.append(1)
         if len(calls) < 3:
             raise urllib.error.URLError("EOF occurred in violation of protocol")
-        return FakeResp(json.dumps({"results": [{"url": "https://a.org/p", "raw_content": "正文" * 10000}],
+        return FakeResp(json.dumps({"results": [{"url": "https://a.org/p",
+                                                 "raw_content": "正文" * 5000 + "表 3 显示每向量 36 字节" + "尾" * 5000}],
                                     "failed_results": []}).encode("utf-8"))
 
     monkeypatch.setattr(ws.urllib.request, "urlopen", flaky)
     assert ws.main(["extract", "https://a.org/p", "--max-chars", "2000"]) == 0
     out = capsys.readouterr().out
-    assert len(calls) == 3 and "已截断" in out and out.count(ws.WARNING) == 2
+    assert len(calls) == 3 and "用 --offset 2000 继续读" in out and out.count(ws.WARNING) == 2
+    # 翻页、找关键词：读本任务的缓存，不再调用 API、不占次数
+    assert ws.main(["extract", "https://a.org/p", "--offset", "12000", "--max-chars", "2000"]) == 0
+    out = capsys.readouterr().out
+    assert "显示第 12000～14000 字符" in out and "尾" in out
+    assert ws.main(["extract", "https://a.org/p", "--find", "36 字节"]) == 0
+    out = capsys.readouterr().out
+    assert "出现 1 处" in out and "每向量 36 字节" in out
+    assert len(calls) == 3 and _state(home)["used"] == 1
 
     # 网络一直失败：清晰报错，返回 4
     monkeypatch.setattr(ws.urllib.request, "urlopen",

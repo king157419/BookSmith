@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, form_error, kind_tag with context %}
+{% block title %}确认大纲 #{{ task.id }}{% endblock %}
+{% block content %}
+<div class="crumbs small"><a href="{{ base }}/tasks">任务</a> / <a href="{{ base }}/tasks/{{ task.id }}">#{{ task.id }}</a> / 确认大纲</div>
+<h1>{{ kind_tag(task.kind) }} {{ task.title }}</h1>
+<p class="muted">智能体先出了大纲。你可以直接修改下面的文本（Markdown），确认后它会按这份大纲写正文。</p>
+{{ form_error(error) }}
+<div class="layout-2 outline-layout">
+  <form method="post" action="{{ base }}/tasks/{{ task.id }}/outline" class="form card col-main">
+    {{ csrf_field() }}
+    <label>大纲
+      <textarea name="outline" rows="18" required class="mono" data-outline-input>{{ outline }}</textarea>
+    </label>
+    <div class="form-actions">
+      <a class="btn" href="{{ base }}/tasks/{{ task.id }}">返回</a>
+      <button class="btn btn-primary" type="submit">确认大纲，开始写正文</button>
+    </div>
+  </form>
+  <aside class="card col-side">
+    <h2>原始草稿预览</h2>
+    <div class="md">{{ (task.summary or outline)|markdown }}</div>
+  </aside>
+</div>
+{% endblock %}

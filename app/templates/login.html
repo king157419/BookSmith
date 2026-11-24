@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, form_error with context %}
+{% block title %}登录{% endblock %}
+{% block content %}
+<section class="auth-card">
+  <h1>登录</h1>
+  <p class="muted">提需求、看进度、审核改动。</p>
+  {{ form_error(error) }}
+  <form method="post" action="{{ base }}/login" class="form">
+    {{ csrf_field() }}
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>用户名
+      <input name="username" required value="{{ username or '' }}" autocomplete="username" autofocus>
+    </label>
+    <label>密码
+      <input name="password" type="password" required autocomplete="current-password">
+    </label>
+    <button type="submit" class="btn btn-primary btn-block">登录</button>
+  </form>
+  <p class="muted small center">没有账号？向管理员要一个邀请码，然后 <a href="{{ base }}/register">注册</a>。</p>
+</section>
+{% endblock %}

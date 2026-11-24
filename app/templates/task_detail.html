@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, kind_tag, csrf_field with context %}
+{% block title %}#{{ task.id }} {{ task.title }}{% endblock %}
+{% block content %}
+{% set active = task.status in ('queued', 'running') %}
+<div class="task-head"
+     data-task-live
+     data-sse-url="{{ base }}/api/tasks/{{ task.id }}/events"
+     data-last-id="{{ last_event_id }}"
+     data-status="{{ task.status }}">
+  <div class="crumbs small"><a href="{{ base }}/tasks">任务</a> / #{{ task.id }}</div>
+  <h1>{{ kind_tag(task.kind) }} {{ task.title }}</h1>
+  <div class="meta-line">
+    {{ status_badge(task.status) }}
+    <span class="muted small" data-queue-pos>{% if queue_pos %}排队第 {{ queue_pos }} 位{% endif %}</span>
+    <span class="muted small">提交人 {{ task.username }} · {{ task.created_at|ts }}</span>
+    {% if task.branch %}<span class="muted small mono">{{ task.branch }}</span>{% endif %}
+  </div>
+  {% if parent or children %}
+  <div class="chain small">
+    {% if parent %}<span>上一轮：<a href="{{ base }}/tasks/{{ parent.id }}">#{{ parent.id }}</a>（{{ STATUS_LABELS[parent.status] }}）</span>{% endif %}
+    {% for c in children %}<span>下一轮：<a href="{{ base }}/tasks/{{ c.id }}">#{{ c.id }}</a>（{{ STATUS_LABELS[c.status] }}）</span>{% endfor %}
+  </div>
+  {% endif %}
+  <div class="actions">
+    {% if task.status == 'awaiting_outline' %}
+    <a class="btn btn-primary" href="{{ base }}/tasks/{{ task.id }}/outline">确认大纲</a>
+    {% endif %}
+    {% if can_cancel %}
+    <form method="post" action="{{ base }}/tasks/{{ task.id }}/cancel" class="inline" data-confirm="确定取消这个任务吗？进行中的改动会被丢弃。">
+      {{ csrf_field() }}<button class="btn btn-danger-ghost" type="submit">取消任务</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if merge_info and task.status == 'merged' %}
+<div class="flash flash-ok">{{ merge_info }}</div>
+{% endif %}
+
+<div class="layout-2{{ ' live' if active }}">
+  <div class="col-main">
+    <section class="card">
+      <h2>需求</h2>
+      <div class="pre-text">{{ task.request }}</div>
+      {% if task.params %}
+      <dl class="params small">
+        {% if task.params.chapter is defined %}<div><dt>章节</dt><dd>第 {{ task.params.chapter }} 章</dd></div>{% endif %}
+        {% if task.params.count is defined %}<div><dt>题目数量</dt><dd>{{ task.params.count }}</dd></div>{% endif %}
+        {% if task.params.style is defined %}<div><dt>课件风格</dt><dd>{{ task.params.style }}</dd></div>{% endif %}
+      </dl>
+      {% endif %}
+      {% if attachments %}
+      <h3>附件</h3>
+      <ul class="files">
+        {% for a in attachments %}
+        <li><a href="{{ base }}/tasks/{{ task.id }}/inputs/{{ loop.index0 }}">{{ a.name }}</a> <span class="muted small">{{ a.size|filesize }}</span></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if task.feedback %}
+      <h3>{{ '审核意见（本轮按此修改）' if task.parent_id else '打回意见' }}</h3>
+      <div class="pre-text quote">{{ task.feedback }}</div>
+      {% endif %}
+    </section>
+
+    {% if task.status == 'awaiting_outline' %}
+    <section class="card highlight">
+      <h2>大纲草稿</h2>
+      <div class="md">{{ (task.outline or task.summary)|markdown }}</div>
+      <p><a class="btn btn-primary" href="{{ base }}/tasks/{{ task.id }}/outline">查看并确认大纲</a></p>
+    </section>
+    {% elif task.outline and task.kind == 'newchapter' %}
+    <details class="card">
+      <summary><h2 class="inline-h">已确认的大纲</h2></summary>
+      <div class="md">{{ task.outline|markdown }}</div>
+    </details>
+    {% endif %}
+
+    {% if task.summary and task.status != 'awaiting_outline' %}
+    <section class="card">
+      <h2>智能体说明</h2>
+      <div class="md">{{ task.summary|markdown }}</div>
+    </section>
+    {% endif %}
+
+    {% if pdfs %}
+    <section class="card">
+      <h2>PDF 预览</h2>
+      {% if pdfs|length > 1 %}
+      <div class="seg pdf-tabs" data-pdf-tabs>
+        {% for p in pdfs %}
+        <a href="{{ base }}/tasks/{{ task.id }}/artifacts/{{ p.id }}" data-pdf-src="{{ base }}/tasks/{{ task.id }}/artifacts/{{ p.id }}" class="{{ 'on' if loop.first }}">{{ p.name }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="pdf-frame">
+        <iframe src="{{ base }}/tasks/{{ task.id }}/artifacts/{{ pdfs[0].id }}" title="PDF 预览" data-pdf-frame loading="lazy"></iframe>
+      </div>
+      <p class="small muted">手机上预览不显示时，<a href="{{ base }}/tasks/{{ task.id }}/artifacts/{{ pdfs[0].id }}" target="_blank" rel="noopener" data-pdf-open>在新窗口打开</a>。</p>
+    </section>
+    {% endif %}
+
+    {% if diff_art %}
+    <section class="card">
+      <div class="card-head">
+        <h2>改动对比</h2>
+        {% if diff %}<span class="small"><span class="add-n">+{{ diff.total_added }}</span> <span class="del-n">−{{ diff.total_removed }}</span> · {{ diff.files|length }} 个文件</span>{% endif %}
+      </div>
+      {% if diff and diff.truncated %}
+      <div class="flash flash-warn">改动较大，下面只显示了一部分。<a href="{{ base }}/tasks/{{ task.id }}/artifacts/{{ diff_art.id }}?download=1">下载完整 diff</a></div>
+      {% endif %}
+      {% if diff and diff.files %}
+      {% for f in diff.files %}
+      <details class="diff-file" {{ 'open' if diff.files|length <= 6 and f.lines|length <= 300 }}>
+        <summary>
+          <span class="diff-status ds-{{ f.status }}">{{ f.status }}</span>
+          <span class="mono diff-name">{{ f.name }}</span>
+          <span class="small"><span class="add-n">+{{ f.added }}</span> <span class="del-n">−{{ f.removed }}</span></span>
+        </summary>
+        {% if f.binary %}
+        <p class="muted small pad">二进制文件，不显示内容。</p>
+        {% else %}
+        <div class="diff-body"><table class="diff"><tbody>
+          {% for l in f.lines %}<tr class="dl-{{ l.kind }}"><td>{{ l.text }}</td></tr>{% endfor %}
+        </tbody></table></div>
+        {% if f.truncated %}<p class="muted small pad">此文件还有 {{ f.hidden_lines }} 行未显示。</p>{% endif %}
+        {% endif %}
+      </details>
+      {% endfor %}
+      {% else %}
+      <p class="muted">相对 master 没有文本改动。</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if artifacts %}
+    <section class="card">
+      <h2>产物下载</h2>
+      <ul class="files">
+        {% for a in artifacts %}
+        <li><span class="tag">{{ a.kind }}</span> <a href="{{ base }}/tasks/{{ task.id }}/artifacts/{{ a.id }}?download=1">{{ a.name }}</a></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if task.status == 'awaiting_review' %}
+    <section class="card review-box" id="review">
+      <h2>审核</h2>
+      {% if can_review %}
+      <form method="post" action="{{ base }}/tasks/{{ task.id }}/approve" class="inline" data-confirm="确认通过并把分支 {{ task.branch }} 合并进 master？">
+        {{ csrf_field() }}
+        <button class="btn btn-primary" type="submit">通过并合并</button>
+      </form>
+      {% else %}
+      <p class="muted small">只有管理员可以通过合并；你可以填写意见打回，让智能体继续改。</p>
+      {% endif %}
+      <form method="post" action="{{ base }}/tasks/{{ task.id }}/reject" class="form reject-form">
+        {{ csrf_field() }}
+        <label>修改意见
+          <textarea name="feedback" rows="4" required maxlength="20000" placeholder="哪里不对、希望怎么改。会作为新一轮任务的输入，在同一分支上继续修改。"></textarea>
+        </label>
+        <button class="btn" type="submit">打回重做</button>
+      </form>
+    </section>
+    {% endif %}
+  </div>
+
+  <aside class="col-side">
+    <section class="card progress-card">
+      <h2>进度</h2>
+      <div class="current-step">
+        <span class="spinner {{ 'on' if active }}" data-spinner aria-hidden="true"></span>
+        <span data-current-step>{% if events %}{{ events[-1].step }}：{{ events[-1].message }}{% else %}等待开始{% endif %}</span>
+      </div>
+      <p class="small muted live-state" data-live-state>{% if active %}实时更新中…{% endif %}</p>
+      <ol class="events" data-events>
+        {% for e in events %}
+        <li class="ev ev-{{ e.level }}"><time>{{ e.ts[11:19] }}</time><b>{{ e.step }}</b><span>{{ e.message }}</span></li>
+        {% endfor %}
+      </ol>
+    </section>
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+# 树莓派上运行 BookSmith（网页 + 任务队列 + 真实流水线）。
+#
+# 目录约定（~/BookSmith 是 BookSmith 仓库的克隆）：
+#   ~/BookSmith/.env      DEEPSEEK_API_KEY、SECRET_KEY 等（权限 600，不进仓库）
+#   ~/BookSmith/data      SQLite、任务产物、worktree、OpenCode 会话库、课件模板包（slide-templates/<名字>/）
+#   ~/BookSmith/book      书稿仓库主克隆（master）
+#   ~/BookSmith/skills    技能（仓库自带，只读挂载；改技能后 git pull 即可，不用重建镜像）
+#
+# 构建与启动（在 ~/BookSmith 下）：
+#   docker build -f docker/Dockerfile.base -t booksmith-base docker     # 只在换 TeX 环境时
+#   docker build -f docker/Dockerfile -t booksmith .
+#   docker compose -f deploy/compose.yaml up -d
+#   docker compose -f deploy/compose.yaml logs -f        # 首次启动看 setup token
+#
+# 端口只绑 127.0.0.1:8100，外网访问走 SSH 反向隧道 + 入口服务器 nginx（见 入口服务器.md）。
+# 容器里不挂 SSH 私钥、代理配置等与任务无关的文件。
+
+services:
+  booksmith:
+    image: booksmith:latest
+    container_name: booksmith
+    restart: unless-stopped
+    user: "1000:1000"
+    init: false                # 镜像里已用 tini 做 PID 1
+    env_file:
+      - ../.env
+    environment:
+      BOOKSMITH_PIPELINES: real
+      DATA_DIR: /data
+      BOOK_REPO_DIR: /book
+      BOOKSMITH_SKILLS_DIR: /skills
+      BOOKSMITH_SLIDE_TEMPLATES: /data/slide-templates
+      BOOKSMITH_SLIDES_TEMPLATE: shu
+      PORT: "8100"
+      HOST: 0.0.0.0
+      FORWARDED_ALLOW_IPS: "*"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:8100:8100"
+    volumes:
+      - ../data:/data
+      - ../book:/book
+      - ../skills:/skills:ro
+    # 编译全书 + OpenCode 同时跑时内存峰值约 1.5～2.5GB；树莓派 8G，留余量给其它容器
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

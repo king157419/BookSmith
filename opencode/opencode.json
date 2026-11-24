@@ -1,0 +1,76 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "deepseek/deepseek-flash",
+  "small_model": "deepseek/deepseek-flash",
+  "autoupdate": false,
+  "share": "disabled",
+  "snapshot": false,
+  "provider": {
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek",
+      "options": {
+        "baseURL": "https://api.deepseek.com",
+        "apiKey": "{file:~/.booksmith/deepseek.key}",
+        "timeout": 600000
+      },
+      "models": {
+        "deepseek-flash": {
+          "name": "DeepSeek V4.1 Flash",
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": true,
+          "modalities": { "input": ["text", "image"], "output": ["text"] },
+          "limit": { "context": 400000, "output": 64000 }
+        }
+      }
+    }
+  },
+  "permission": {
+    "*": "deny",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "skill": "allow",
+    "todowrite": "allow",
+    "todoread": "allow",
+    "edit": {
+      "*": "allow",
+      "tools/*": "deny",
+      "tools/**": "deny",
+      ".git": "deny",
+      ".git/*": "deny",
+      ".opencode/*": "deny",
+      ".opencode/**": "deny",
+      "*.sty": "deny",
+      "fonts.tex": "deny",
+      "pandoc-shim.tex": "deny"
+    },
+    "bash": {
+      "*": "deny",
+      "sh tools/build_linux.sh --chapter *": "allow",
+      "sh tools/build_linux.sh --file *": "allow",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git show*": "allow",
+      "git add *": "allow",
+      "git commit *": "allow",
+      "*>*": "deny",
+      "*<*": "deny",
+      "*|*": "deny",
+      "*$(*": "deny",
+      "*`*": "deny",
+      "*--output*": "deny",
+      "*--no-index*": "deny",
+      "*--exec*": "deny",
+      "* -c *": "deny"
+    },
+    "webfetch": "deny",
+    "websearch": "deny",
+    "task": "deny",
+    "external_directory": "deny",
+    "question": "deny"
+  }
+}

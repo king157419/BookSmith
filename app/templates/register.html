@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, form_error with context %}
+{% block title %}注册{% endblock %}
+{% block content %}
+<section class="auth-card">
+  <h1>用邀请码注册</h1>
+  {{ form_error(error) }}
+  <form method="post" action="{{ base }}/register" class="form">
+    {{ csrf_field() }}
+    <label>邀请码
+      <input name="code" required value="{{ code or '' }}" class="mono" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX">
+    </label>
+    <label>用户名
+      <input name="username" required value="{{ username or '' }}" autocomplete="username" maxlength="32">
+    </label>
+    <label>密码 <span class="hint">至少 8 位</span>
+      <input name="password" type="password" required minlength="8" autocomplete="new-password">
+    </label>
+    <label>再输一次密码
+      <input name="password2" type="password" required minlength="8" autocomplete="new-password">
+    </label>
+    <button type="submit" class="btn btn-primary btn-block">注册并登录</button>
+  </form>
+  <p class="muted small center">已有账号？<a href="{{ base }}/login">登录</a></p>
+</section>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, form_error with context %}
+{% block title %}新建任务{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>新建任务</h1>
+    <p class="muted">今日已用额度 <b>{{ used_today }}</b> / {{ quota }}</p>
+  </div>
+</div>
+{{ form_error(error) }}
+<form method="post" action="{{ base }}/tasks/new" enctype="multipart/form-data" class="form card" data-kind-form>
+  {{ csrf_field() }}
+  <fieldset class="kind-picker">
+    <legend>选择能力</legend>
+    {% for k in KINDS %}
+    <label class="kind-option">
+      <input type="radio" name="kind" value="{{ k }}" {{ 'checked' if form.kind == k }} required>
+      <span class="kind-card">
+        <b>{{ KIND_LABELS[k] }}</b>
+        <span class="small muted">{{ KIND_HINTS[k] }}</span>
+      </span>
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <label>标题
+    <input name="title" required maxlength="100" value="{{ form.title or '' }}" placeholder="例如：第 1 章表 1-6 换成最新型号">
+  </label>
+  <label>需求描述
+    <textarea name="request" rows="7" required maxlength="20000" placeholder="写清楚想改什么、改成什么样、有什么依据或参考。">{{ form.request or '' }}</textarea>
+  </label>
+
+  <div class="grid-2">
+    <label data-for-kind="maintain exercises slides newchapter">章节号 <span class="hint" data-hint-kind="maintain newchapter">可选</span>
+      <input name="chapter" type="number" min="0" max="99" inputmode="numeric" value="{{ form.chapter or '' }}">
+    </label>
+    <label data-for-kind="exercises">题目数量
+      <input name="count" type="number" min="1" max="50" inputmode="numeric" value="{{ form.count or 10 }}">
+    </label>
+    <label data-for-kind="slides">课件风格
+      <select name="style">
+        {% for s in SLIDE_STYLES %}<option value="{{ s }}" {{ 'selected' if form.style == s }}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <label>附件 <span class="hint">可选，可多选：老师批注 PDF、参考 PPT 模板等，总计不超过 {{ max_upload }}</span>
+    <input name="attachments" type="file" multiple accept=".pdf,.pptx,.potx,.ppt,.docx,.doc,.png,.jpg,.jpeg,.txt,.md,.tex,.zip" data-max-bytes="52428800">
+  </label>
+
+  <div class="form-actions">
+    <a class="btn" href="{{ base }}/tasks">取消</a>
+    <button type="submit" class="btn btn-primary">提交任务</button>
+  </div>
+</form>
+{% endblock %}

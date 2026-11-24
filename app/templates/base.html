@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf }}">
+<title>{% block title %}BookSmith{% endblock %} · BookSmith 教材助理</title>
+<link rel="stylesheet" href="{{ base }}/static/style.css">
+<link rel="icon" href="{{ base }}/static/favicon.svg" type="image/svg+xml">
+<script src="{{ base }}/static/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="{{ base }}/">
+      <span class="brand-mark" aria-hidden="true">B</span>
+      <span class="brand-text">BookSmith<small>教材助理</small></span>
+    </a>
+    {% if user %}
+    <nav class="nav">
+      <a href="{{ base }}/tasks" class="{{ 'active' if path.startswith('/tasks') and not path.startswith('/tasks/new') }}">任务</a>
+      <a href="{{ base }}/tasks/new" class="{{ 'active' if path.startswith('/tasks/new') }}">新建</a>
+      {% if user.role == 'admin' %}<a href="{{ base }}/admin" class="{{ 'active' if path.startswith('/admin') }}">管理</a>{% endif %}
+    </nav>
+    <div class="userbox">
+      <span class="who" title="{{ ROLE_LABELS[user.role] }}">{{ user.username }}</span>
+      <form method="post" action="{{ base }}/logout" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn-link">退出</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</header>
+<main class="container">
+  {% if flash %}<div class="flash flash-{{ flash.level }}" role="status">{{ flash.text }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">BookSmith · 智能体只在自己的分支上改稿，审核通过才合并</footer>
+</body>
+</html>

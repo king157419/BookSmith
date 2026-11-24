@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% block title %}管理{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>管理</h1>
+  <a class="btn" href="{{ base }}/tasks?scope=all">查看全部任务</a>
+</div>
+
+<section class="card" id="users">
+  <h2>用户</h2>
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>用户</th><th>今日 / 总任务</th><th>角色</th><th>每日额度</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td data-label="用户"><b>{{ u.username }}</b>{% if u.id == user.id %} <span class="muted small">（你）</span>{% endif %}<br><span class="muted small">{{ u.created_at|ts }}</span></td>
+        <td data-label="今日/总">{{ u.used_today }} / {{ u.total_tasks }}</td>
+        <td data-label="角色" colspan="3">
+          <form method="post" action="{{ base }}/admin/users/{{ u.id }}" class="row-form">
+            {{ csrf_field() }}
+            <select name="role" aria-label="角色">
+              {% for r, label in ROLE_LABELS.items() %}<option value="{{ r }}" {{ 'selected' if u.role == r }}>{{ label }}</option>{% endfor %}
+            </select>
+            <input name="daily_quota" type="number" min="0" max="1000" value="{{ u.daily_quota }}" aria-label="每日额度" class="num">
+            <button class="btn btn-small" type="submit">保存</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card" id="invites">
+  <h2>邀请码</h2>
+  {% if new_code %}
+  <div class="new-code">
+    <span>新邀请码</span>
+    <code class="big-code" data-copy-text="{{ new_code }}">{{ new_code }}</code>
+    <button class="btn btn-small" type="button" data-copy="{{ new_code }}">复制</button>
+    <p class="small muted">把邀请码发给对方，让他打开 <span class="mono">{{ base }}/register</span> 注册。</p>
+  </div>
+  {% endif %}
+  <form method="post" action="{{ base }}/admin/invites" class="row-form wrap">
+    {{ csrf_field() }}
+    <label class="inline-label">角色
+      <select name="role"><option value="member">成员</option><option value="admin">管理员</option></select>
+    </label>
+    <label class="inline-label">有效期
+      <select name="days">
+        <option value="1">1 天</option><option value="7" selected>7 天</option>
+        <option value="30">30 天</option><option value="0">不过期</option>
+      </select>
+    </label>
+    <button class="btn btn-primary btn-small" type="submit">生成邀请码</button>
+  </form>
+  {% if invites %}
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>邀请码</th><th>角色</th><th>状态</th><th>过期时间</th><th></th></tr></thead>
+    <tbody>
+      {% for i in invites %}
+      <tr class="{{ 'dim' if i.state != 'active' }}">
+        <td data-label="邀请码" class="mono">{{ i.code }}</td>
+        <td data-label="角色">{{ ROLE_LABELS[i.role] }}</td>
+        <td data-label="状态">
+          {% if i.state == 'used' %}已被 {{ i.used_by_name }} 使用{% elif i.state == 'expired' %}已过期{% else %}可用{% endif %}
+        </td>
+        <td data-label="过期">{{ i.expires_at|ts if i.expires_at else '不过期' }}</td>
+        <td>
+          {% if i.state != 'used' %}
+          <form method="post" action="{{ base }}/admin/invites/{{ i.code }}/delete" class="inline" data-confirm="作废邀请码 {{ i.code }}？">
+            {{ csrf_field() }}<button class="btn-link danger" type="submit">作废</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">还没有邀请码。</p>
+  {% endif %}
+</section>
+{% endblock %}

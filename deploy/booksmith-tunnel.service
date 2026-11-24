@@ -1,0 +1,16 @@
+[Unit]
+Description=BookSmith reverse tunnel to entry server (127.0.0.1:8100)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=king
+ExecStart=/usr/bin/ssh -N -i /home/king/.ssh/booksmith_tunnel \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+  -R 127.0.0.1:8100:127.0.0.1:8100 ubuntu@124.220.163.249
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

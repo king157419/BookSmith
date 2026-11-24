@@ -1,0 +1,95 @@
+# booksmith-base：编译《大语言模型原理与技术》书稿的基础镜像（M0）
+#   - Debian trixie-slim
+#   - TeX Live（install-tl，清华镜像，不装文档与源码，只选书稿用到的 collection）
+#   - 开源中文字体：fonts-noto-cjk（Noto Serif/Sans CJK SC）；FandolKai/FandolFang 随 TeX Live
+#   - python3 + pypinyin + python3-icu（tools/make_index.py 排拼音索引）、git、make、curl、poppler-utils + poppler-data（pdftoppm 出缩略图）
+#
+# 构建（在树莓派上原生构建 ARM64，在 x86 电脑上构建 amd64，同一份文件）：
+#   docker build -f Dockerfile.base -t booksmith-base .
+# Docker Hub 不通时，可先把 debian:trixie-slim 放进本地镜像库（docker load），或用
+#   --build-arg BASE_IMAGE=docker.m.daocloud.io/library/debian:trixie-slim
+# 需要代理时：--build-arg HTTP_PROXY=... --build-arg HTTPS_PROXY=...（只作用于构建过程，不写进镜像）
+#
+# 编译书稿（在书稿仓库根目录）：
+#   docker run --rm -v "$PWD":/book -w /book --user "$(id -u):$(id -g)" -e HOME=/tmp \
+#     booksmith-base sh tools/build_linux.sh            # 全书
+#   ... booksmith-base sh tools/build_linux.sh --chapter 5   # 只编第 5 章
+
+ARG BASE_IMAGE=debian:trixie-slim
+FROM ${BASE_IMAGE}
+
+ARG DEBIAN_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
+ARG TL_REPO=https://mirrors.tuna.tsinghua.edu.cn/CTAN/systems/texlive/tlnet
+ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    DEBIAN_FRONTEND=noninteractive
+
+# ---------- 系统包 ----------
+# apt 镜像先用 http（slim 镜像里还没有 CA 证书）；perl/xz-utils 是 install-tl 需要的；fontconfig 让 XeTeX 能按名字找到 Noto CJK
+RUN sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl git make perl xz-utils fontconfig fonts-noto-cjk \
+      python3 python3-pip poppler-utils \
+ && rm -rf /var/lib/apt/lists/* \
+ && fc-cache -f
+
+# ---------- TeX Live ----------
+# 书稿用到的宏包（见 main.log）：ctex/xeCJK/zhnumber（langchinese+langcjk）、fontspec/unicode-math（latex/xetex）、
+# tikz/pgfplots（pictures）、tcolorbox/tikzfill/needspace/makecell/enumitem/xurl/environ（latexextra）、
+# siunitx（mathscience）、natbib/listings/caption/hyperref/booktabs/multirow（latexrecommended/latexextra），
+# TeX Gyre/TeX Gyre Math/Latin Modern（fontsrecommended），Fandol（langchinese）。
+RUN set -eux; \
+    mkdir /tmp/install-tl; cd /tmp/install-tl; \
+    curl -fsSL "${TL_REPO}/install-tl-unx.tar.gz" | tar -xz --strip-components=1; \
+    printf '%s\n' \
+      'selected_scheme scheme-custom' \
+      'TEXDIR /usr/local/texlive/dist' \
+      'TEXMFLOCAL /usr/local/texlive/texmf-local' \
+      'TEXMFSYSCONFIG /usr/local/texlive/dist/texmf-config' \
+      'TEXMFSYSVAR /usr/local/texlive/dist/texmf-var' \
+      'TEXMFHOME ~/texmf' \
+      'collection-basic 1' \
+      'collection-latex 1' \
+      'collection-latexrecommended 1' \
+      'collection-latexextra 1' \
+      'collection-xetex 1' \
+      'collection-fontsrecommended 1' \
+      'collection-langcjk 1' \
+      'collection-langchinese 1' \
+      'collection-pictures 1' \
+      'collection-mathscience 1' \
+      'collection-plaingeneric 1' \
+      'instopt_adjustpath 1' \
+      'instopt_adjustrepo 0' \
+      'instopt_letter 0' \
+      'instopt_write18_restricted 1' \
+      'tlpdbopt_sys_bin /usr/local/bin' \
+      'tlpdbopt_install_docfiles 0' \
+      'tlpdbopt_install_srcfiles 0' \
+      'tlpdbopt_autobackup 0' \
+      > texlive.profile; \
+    perl ./install-tl --profile=texlive.profile --repository "${TL_REPO}"; \
+    cd /; rm -rf /tmp/install-tl; \
+    tlmgr option repository "${TL_REPO}"; \
+    rm -rf /usr/local/texlive/dist/tlpkg/backups/* /usr/local/texlive/dist/texmf-var/web2c/*.log; \
+    xelatex --version | head -1
+
+# ---------- Python ----------
+# pypinyin 给出词语读音；python3-icu（PyICU）决定同音同调字的先后（与原 Windows 排序的笔画序基本一致）
+# poppler-data：FandolKai/FandolFang 在 PDF 里是 Adobe-GB1 字符集的 CID 字体，没有它 pdftoppm 画不出这两种字、pdftotext 也取不出字
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-icu poppler-data \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip3 install --no-cache-dir --break-system-packages -i "${PIP_INDEX}" pypinyin \
+ && python3 -c "import pypinyin, icu; print('pypinyin', pypinyin.__version__, 'ICU', icu.ICU_VERSION)"
+
+# 字体自检：缺字体时构建直接失败
+RUN fc-list : family | grep -q "Noto Serif CJK SC" \
+ && fc-list : family | grep -q "Noto Sans CJK SC" \
+ && kpsewhich FandolKai-Regular.otf FandolFang-Regular.otf texgyretermes-math.otf lmmono10-regular.otf
+
+WORKDIR /book
+CMD ["bash"]

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, kind_tag with context %}
+{% block title %}任务{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ '全部任务' if scope == 'all' else '我的任务' }}</h1>
+    <p class="muted">今日已用额度 <b>{{ used_today }}</b> / {{ quota }}</p>
+  </div>
+  <a class="btn btn-primary" href="{{ base }}/tasks/new">＋ 新建任务</a>
+</div>
+
+<form method="get" action="{{ base }}/tasks" class="filters">
+  {% if user.role == 'admin' %}
+  <div class="seg">
+    <a href="{{ base }}/tasks{{ '?status=' ~ status if status }}" class="{{ 'on' if scope != 'all' }}">我的</a>
+    <a href="{{ base }}/tasks?scope=all{{ '&status=' ~ status if status }}" class="{{ 'on' if scope == 'all' }}">全部</a>
+  </div>
+  <input type="hidden" name="scope" value="{{ scope }}">
+  {% endif %}
+  <label class="inline-label">状态
+    <select name="status" data-autosubmit>
+      <option value="">全部状态</option>
+      {% for k, v in STATUS_LABELS.items() %}
+      <option value="{{ k }}" {{ 'selected' if status == k }}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <noscript><button class="btn btn-small" type="submit">筛选</button></noscript>
+</form>
+
+{% if tasks %}
+<ul class="task-list">
+  {% for t in tasks %}
+  <li>
+    <a class="task-row" href="{{ base }}/tasks/{{ t.id }}">
+      <div class="task-row-main">
+        <div class="task-row-title">
+          <span class="task-id">#{{ t.id }}</span>
+          {{ kind_tag(t.kind) }}
+          <span class="title-text">{{ t.title }}</span>
+          {% if t.parent_id %}<span class="tag tag-round" title="由 #{{ t.parent_id }} 打回生成">返工</span>{% endif %}
+        </div>
+        <div class="task-row-meta muted small">
+          {% if scope == 'all' %}{{ t.username }} · {% endif %}{{ t.created_at|ts }}
+          {% if t.params.chapter is defined %} · 第 {{ t.params.chapter }} 章{% endif %}
+        </div>
+      </div>
+      {{ status_badge(t.status) }}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty">
+  <p>还没有任务。</p>
+  <a class="btn btn-primary" href="{{ base }}/tasks/new">提第一个需求</a>
+</div>
+{% endif %}
+{% endblock %}

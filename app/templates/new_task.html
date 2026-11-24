@@ -38,9 +38,15 @@
     <label data-for-kind="exercises">题目数量
       <input name="count" type="number" min="1" max="50" inputmode="numeric" value="{{ form.count or 10 }}">
     </label>
+    <label data-for-kind="exercises slides">范围（节） <span class="hint">可选，如 5.1-5.3；不填为整章</span>
+      <input name="sections" maxlength="40" value="{{ form.sections or '' }}" placeholder="整章">
+    </label>
+    <label data-for-kind="slides">课件页数
+      <input name="pages" type="number" min="2" max="40" inputmode="numeric" value="{{ form.pages or 12 }}">
+    </label>
     <label data-for-kind="slides">课件风格
       <select name="style">
-        {% for s in SLIDE_STYLES %}<option value="{{ s }}" {{ 'selected' if form.style == s }}>{{ s }}</option>{% endfor %}
+        {% for v, label in SLIDE_STYLES %}<option value="{{ v }}" {{ 'selected' if form.style == v }}>{{ label }}</option>{% endfor %}
       </select>
     </label>
   </div>

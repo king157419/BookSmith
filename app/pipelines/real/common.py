@@ -73,13 +73,14 @@ _SECRET_RE = re.compile(r"(sk-|tvly-|ghp_|github_pat_)[A-Za-z0-9_\-]{6,}")
 
 
 def mask(text: str) -> str:
-    """把 sk-xxxx、tvly-xxxx 等疑似密钥打码；再把当前进程里的 DEEPSEEK_API_KEY 原文替换掉。"""
+    """把 sk-xxxx、tvly-xxxx 等疑似密钥打码；再把当前进程里的 DEEPSEEK_API_KEY / TAVILY_API_KEY 原文替换掉。"""
     if not text:
         return text
     text = _SECRET_RE.sub(lambda m: m.group(1) + "***", text)
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
-    if len(key) >= 8:
-        text = text.replace(key, "***")
+    for name in ("DEEPSEEK_API_KEY", "TAVILY_API_KEY"):
+        key = os.environ.get(name, "")
+        if len(key) >= 8:
+            text = text.replace(key, "***")
     return text
 
 
@@ -364,6 +365,7 @@ class Usage:
     balance_before: float | None = None
     balance_after: float | None = None
     seconds: float = 0.0
+    web: dict | None = None            # 联网检索统计（OpenCodeRunner.websearch_stats()），None = 本任务不允许检索
 
     def add(self, r) -> None:
         self.runs += 1
@@ -391,9 +393,19 @@ class Usage:
                          "余额按 0.01 元取整，并行的其他调用也会算进来）")
         elif self.cost_usd:
             lines.append(f"- OpenCode 估算花费：约 {self.cost_usd:.4f} 美元")
+        w = self.web
+        if w is not None:
+            n = w.get("search", 0) + w.get("extract", 0)
+            lines.append(f"- 联网检索（Tavily）：{n} 次（检索 {w.get('search', 0)}、读网页 {w.get('extract', 0)}"
+                         + (f"，其中失败 {w['failed']}" if w.get("failed") else "") + f"；本任务上限 {w.get('limit', 0)}）")
+            for x in (w.get("log") or [])[:40]:
+                tag = "检索" if x.get("kind") == "search" else "读网页"
+                lines.append(f"  - {tag}：{truncate(str(x.get('target', '')), 160)}" + ("" if x.get("ok") else "（失败）"))
         return "\n".join(lines)
 
     def as_dict(self) -> dict:
         return {"runs": self.runs, "input": self.input, "output": self.output, "reasoning": self.reasoning,
                 "cache_read": self.cache_read, "cost_usd": round(self.cost_usd, 5),
-                "spent_cny": self.spent_cny(), "seconds": round(self.seconds)}
+                "spent_cny": self.spent_cny(), "seconds": round(self.seconds),
+                **({"web_search": self.web.get("search", 0), "web_extract": self.web.get("extract", 0),
+                    "web_failed": self.web.get("failed", 0)} if self.web is not None else {})}

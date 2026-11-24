@@ -4,6 +4,7 @@
 {% block content %}
 <section class="auth-card">
   <h1>用邀请码注册</h1>
+  <p class="muted">注册需要管理员发的邀请码。管理员不用注册，请直接 <a href="{{ base }}/login">登录</a>。</p>
   {{ form_error(error) }}
   <form method="post" action="{{ base }}/register" class="form">
     {{ csrf_field() }}

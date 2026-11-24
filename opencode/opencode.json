@@ -57,6 +57,8 @@
       "git show*": "allow",
       "git add *": "allow",
       "git commit *": "allow",
+      "python3 /app/scripts/websearch.py search *": "allow",
+      "python3 /app/scripts/websearch.py extract *": "allow",
       "*>*": "deny",
       "*<*": "deny",
       "*|*": "deny",

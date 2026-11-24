@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}已初始化{% endblock %}
+{% block content %}
+<section class="auth-card">
+  <h1>管理员已经设置好了</h1>
+  <p>这套 BookSmith 已经有管理员账号，初始化入口已关闭；服务日志里那行 setup token 也已作废，不用再找它。</p>
+  <ul class="muted">
+    <li>管理员：请直接 <a href="{{ base }}/login">登录</a>。</li>
+    <li>其他人：注册需要管理员发的邀请码，拿到后到 <a href="{{ base }}/register">注册页</a> 填写。</li>
+  </ul>
+  <p><a class="btn btn-primary btn-block" href="{{ base }}/login">去登录</a></p>
+</section>
+{% endblock %}

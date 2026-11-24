@@ -49,7 +49,11 @@ KIND_HINTS = {
     "slides": "根据章节做一讲课件（PPTX + PDF 预览），可上传参考模板。",
     "newchapter": "检索资料写新的一节或一章：先出大纲给你确认，确认后再写正文。",
 }
-SLIDE_STYLES = ["简洁", "学术", "活泼", "按上传的模板"]
+# 课件风格：(值, 显示名)。值与 app/pipelines/real/slides.py 的 STYLES 一致
+SLIDE_STYLES = [("pptmaster-template", "默认模板（套用服务器上的课件模板）"),
+                ("pptmaster-default", "简洁（PPT Master 默认风格）"),
+                ("beamer", "学术（Beamer，PDF 为主）")]
+SLIDE_STYLE_VALUES = [v for v, _ in SLIDE_STYLES]
 ROLE_LABELS = {"admin": "管理员", "member": "成员"}
 CANCELLABLE = ("queued", "running", "awaiting_outline", "awaiting_review")
 ALLOWED_UPLOAD_EXT = {".pdf", ".pptx", ".potx", ".ppt", ".docx", ".doc", ".png", ".jpg",
@@ -110,6 +114,9 @@ class LoginRequired(Exception):
 # =====================================================================
 # 应用工厂
 # =====================================================================
+INVITE_NEEDED = "注册需要管理员发的邀请码；管理员请直接从登录页登录。"
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         load_dotenv()
@@ -143,6 +150,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             log.warning(msg)
         else:
             app.state.setup_token = None
+            log.info("已有管理员，setup 入口已关闭（之后请从 %s/login 登录）。", BASE)
         if settings.start_worker:
             worker.start()
         yield
@@ -323,14 +331,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/setup")
     async def setup_page(request: Request):
         if db.count_users() > 0:
-            return RedirectResponse(url("/login"), status_code=303)
+            # 不静默跳转：用户常拿着日志里那行早已作废的 token 来这里，说清楚该去登录
+            return render(request, "setup_done.html", {})
         return render(request, "setup.html", {})
 
     @app.post("/setup")
     async def setup_submit(request: Request):
         form = await read_form(request)
         if db.count_users() > 0 or not request.app.state.setup_token:
-            return redirect("/login", "系统已经初始化过了。", request, "warn")
+            return render(request, "setup_done.html", {}, 409)
         ip = client_ip(request)
         wait = limiter.retry_after("setup:" + ip)
         if wait:
@@ -348,7 +357,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return render(request, "setup.html", {"error": err, "username": username}, 400)
         uid = db.create_user(username, auth.hash_password(password), "admin", settings.default_quota)
         request.app.state.setup_token = None
-        log.info("管理员账号已创建：%s", username)
+        log.warning("管理员账号已创建：%s。setup token 已作废（日志里上面那行旧 token 不能再用），"
+                    "之后请从 %s/login 登录。", username, BASE)
         resp = login_response(request, uid, url("/tasks"))
         set_cookie(resp, request, auth.FLASH_COOKIE, quote("ok|管理员账号已创建。下一步：在「管理」里生成邀请码。"), 60)
         return resp
@@ -406,6 +416,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         wait = limiter.retry_after("invite:" + ip)
         if wait:
             return render(request, "register.html", {**ctx, "error": f"尝试次数过多，请 {wait} 秒后再试。"}, 429)
+        if not code:
+            return render(request, "register.html", {**ctx, "error": INVITE_NEEDED}, 400)
         err = auth.validate_new_account(username, password, password2)
         if err:
             return render(request, "register.html", {**ctx, "error": err}, 400)
@@ -414,7 +426,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         uid = db.register_with_invite(code, username, auth.hash_password(password), settings.default_quota)
         if uid is None:
             limiter.fail("invite:" + ip)
-            return render(request, "register.html", {**ctx, "error": "邀请码无效、已被使用或已过期。"}, 400)
+            return render(request, "register.html", {**ctx, "error": "邀请码无效、已被使用或已过期。" + INVITE_NEEDED}, 400)
         resp = login_response(request, uid, url("/tasks"))
         set_cookie(resp, request, auth.FLASH_COOKIE, quote("ok|注册成功，欢迎使用 BookSmith。"), 60)
         return resp
@@ -446,7 +458,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def new_task_submit(request: Request):
         user = require_user(request)
         form = await read_form(request, settings.max_upload_bytes)
-        values = {k: str(form.get(k, "")).strip() for k in ("kind", "title", "request", "chapter", "count", "style")}
+        values = {k: str(form.get(k, "")).strip()
+                  for k in ("kind", "title", "request", "chapter", "count", "style", "pages", "sections")}
         used = db.tasks_created_today(user["id"])
         page_ctx = {"form": values, "used_today": used, "quota": user["daily_quota"],
                     "max_upload": _filesize(settings.max_upload_bytes)}
@@ -483,10 +496,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except (ValueError, AssertionError):
                 return fail("题目数量应为 1–50。")
         if kind == "slides":
-            style = values["style"] or SLIDE_STYLES[0]
-            if style not in SLIDE_STYLES:
+            style = values["style"] or SLIDE_STYLE_VALUES[0]
+            if style not in SLIDE_STYLE_VALUES:
                 return fail("课件风格无效。")
             params["style"] = style
+            try:
+                pages = int(values["pages"] or 12)
+                assert 2 <= pages <= 40
+                params["pages"] = pages
+            except (ValueError, AssertionError):
+                return fail("课件页数应为 2–40。")
+        if kind in ("slides", "exercises") and values["sections"]:
+            if len(values["sections"]) > 40:
+                return fail("范围写得太长（例如 5.1-5.3）。")
+            params["sections"] = values["sections"]
         if used >= user["daily_quota"]:
             return fail(f"今天的任务额度已用完（{used}/{user['daily_quota']}），明天再来或联系管理员。", 429)
 
@@ -683,6 +706,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                            "url": url(f"/tasks/{task_id}/artifacts/{a['id']}")}
                           for a in db.list_artifacts(task_id)],
             "children": [c["id"] for c in db.child_tasks(task_id)],
+            "cost": _json_or_none(task.get("cost_json")),
         }
 
     @app.get("/api/tasks/{task_id}/events")
@@ -787,6 +811,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         request, "ok" if ok else "error")
 
     return app
+
+
+def _json_or_none(text):
+    try:
+        return json.loads(text) if text else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _filesize(n) -> str:

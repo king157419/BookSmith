@@ -36,10 +36,11 @@ class Job:
         return self.ctx.task.get("id")
 
 
-def start_job(ctx: Ctx, skills: list[str], permission: dict | None = None) -> Job:
+def start_job(ctx: Ctx, skills: list[str], permission: dict | None = None, web_search: bool = False) -> Job:
+    """web_search=True：允许本任务用 scripts/websearch.py 联网检索（maintain、newchapter）。"""
     check_cancel(ctx)
     usage = Usage(balance_before=deepseek_balance())
-    runner = OpenCodeRunner(ctx, usage, permission=permission)
+    runner = OpenCodeRunner(ctx, usage, permission=permission, web_search=web_search)
     runner.prepare(skills)
     job = Job(ctx=ctx, usage=usage, runner=runner, base=merge_base(ctx.workdir), start_head=head(ctx.workdir))
     _stage_attachments(job)
@@ -186,6 +187,11 @@ def fix_checks(job: Job, rep: CheckReport, *, fix_prompt_head: str, title: str) 
 # ---------------------------------------------------------------- 收尾
 def finish_usage(job: Job) -> None:
     job.usage.balance_after = deepseek_balance()
+    if job.runner.web_search:
+        job.usage.web = job.runner.websearch_stats()
+        w = job.usage.web
+        job.ctx.log("用量", f"联网检索 {w['search']} 次、读网页 {w['extract']} 次"
+                           + (f"（失败 {w['failed']}）" if w["failed"] else ""))
 
 
 def build_table(builds: list[BuildResult]) -> str:

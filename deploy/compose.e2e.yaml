@@ -1,0 +1,46 @@
+# 端到端测试实例（与线上实例 booksmith 完全隔离：独立容器名、端口、数据目录、书稿克隆）。
+#
+# 准备（在 ~/BookSmith 下）：
+#   mkdir -p e2e/data && git clone -q book e2e/book          # 书稿从线上主克隆 clone 一份，合并只进这份
+#   docker compose -p booksmith-e2e -f deploy/compose.e2e.yaml up -d
+#   docker logs booksmith-e2e 2>&1 | grep -A1 "setup token"
+# 测完：
+#   docker compose -p booksmith-e2e -f deploy/compose.e2e.yaml down && rm -rf e2e
+#
+# 用同一个镜像、同一份 .env、同一个 skills 目录（只读）。课件模板包从线上 data 只读挂载，不往线上 data 写任何东西。
+# 不配置 BOOK_GIT_REMOTE：审核通过只合并进 e2e/book 的 master，不推送。
+
+services:
+  booksmith-e2e:
+    image: booksmith:latest
+    container_name: booksmith-e2e
+    restart: "no"
+    user: "1000:1000"
+    init: false
+    env_file:
+      - ../.env
+    environment:
+      BOOKSMITH_PIPELINES: real
+      DATA_DIR: /data
+      BOOK_REPO_DIR: /book
+      BOOK_GIT_REMOTE: ""
+      BOOKSMITH_SKILLS_DIR: /skills
+      BOOKSMITH_SLIDE_TEMPLATES: /slide-templates
+      BOOKSMITH_SLIDES_TEMPLATE: shu
+      PORT: "8100"
+      HOST: 0.0.0.0
+      FORWARDED_ALLOW_IPS: "*"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:8199:8100"
+    volumes:
+      - ../e2e/data:/data
+      - ../e2e/book:/book
+      - ../skills:/skills:ro
+      - ../data/slide-templates:/slide-templates:ro
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -18,6 +18,11 @@
   tool_use 只在工具结束（completed / error）时发出。
 - 取消：每 0.5 秒查一次 ctx.cancelled()，杀整个进程组；总超时与"无事件"超时同样杀进程。
 - 原始事件流（已打码）存到 out_dir/logs/opencode-NN.jsonl，便于事后排查。
+- 联网检索（web_search=True，只给 maintain / newchapter）：TAVILY_API_KEY 同样写成隔离 HOME 下的 0600 文件，
+  不进子进程环境；模型只能通过白名单里的 `python3 /app/scripts/websearch.py search|extract ...` 调用。
+  每个任务开始时重置 ~/.booksmith/websearch.json（次数上限 + 调用记录），收尾时读出来记进说明和 cost。
+  不允许检索的任务：删掉 tavily.key，并用 OPENCODE_PERMISSION 把这两条放行规则改成 deny
+  （OpenCode 合并配置时同名键保留原位置，所以后面的 "*>*" 等拒绝规则仍然生效）。
 """
 from __future__ import annotations
 
@@ -33,6 +38,9 @@ from pathlib import Path
 from ..base import Ctx, PipelineCancelled
 from .common import (DEFAULT_EXCLUDES, Usage, _kill_tree, booksmith_home, data_dir, ensure_excludes,
                      env_path, int_env, mask, skills_dir, truncate)
+
+WEBSEARCH_SCRIPT = "/app/scripts/websearch.py"
+WEBSEARCH_RULES = (f"python3 {WEBSEARCH_SCRIPT} search *", f"python3 {WEBSEARCH_SCRIPT} extract *")
 
 # 注意：DEEPSEEK_API_KEY 不放进子进程环境（模型的 bash 工具会继承环境，可从 /proc/self/environ 读到）；
 # 改为写进隔离 HOME 下的 0600 文件，配置里用 {file:~/.booksmith/deepseek.key} 引用。
@@ -63,7 +71,7 @@ class RunResult:
 class OpenCodeRunner:
     def __init__(self, ctx: Ctx, usage: Usage | None = None, *, model: str | None = None,
                  timeout: int | None = None, idle_timeout: int | None = None,
-                 permission: dict | None = None):
+                 permission: dict | None = None, web_search: bool = False, web_limit: int | None = None):
         self.ctx = ctx
         self.usage = usage or Usage()
         self.workdir = Path(ctx.workdir)
@@ -73,7 +81,15 @@ class OpenCodeRunner:
         self.home = env_path("BOOKSMITH_OPENCODE_HOME", data_dir() / "opencode")
         self.timeout = timeout or int_env("BOOKSMITH_AGENT_TIMEOUT", 1800)
         self.idle_timeout = idle_timeout or int_env("BOOKSMITH_AGENT_IDLE_TIMEOUT", 600)
-        self.permission = permission          # 追加的权限规则（OPENCODE_PERMISSION，覆盖配置里的同名项）
+        self.web_search = web_search
+        self.web_limit = web_limit or int_env("BOOKSMITH_WEBSEARCH_LIMIT", 25)
+        perm = dict(permission or {})          # 追加的权限规则（OPENCODE_PERMISSION，覆盖配置里的同名项）
+        if not web_search:
+            bash = dict(perm.get("bash") or {})
+            for rule in WEBSEARCH_RULES:
+                bash[rule] = "deny"
+            perm["bash"] = bash
+        self.permission = perm or None
         self.log_dir = Path(ctx.out_dir) / "logs"
         self._n = 0
 
@@ -93,6 +109,7 @@ class OpenCodeRunner:
                 continue
             shutil.copytree(src, dst_root / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         ensure_excludes(self.workdir, DEFAULT_EXCLUDES)
+        self.reset_websearch()
         if missing:
             self.ctx.log("准备", f"找不到技能（已跳过）：{', '.join(missing)}（技能目录 {src_root}）")
         else:
@@ -128,19 +145,62 @@ class OpenCodeRunner:
         return env
 
     @staticmethod
-    def _write_key(home: Path) -> None:
-        key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    def _secret_dir(home: Path) -> Path:
         d = home / ".booksmith"
         d.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(d, 0o700)
         except OSError:
             pass
-        f = d / "deepseek.key"
-        if key and (not f.is_file() or f.read_text(encoding="utf-8").strip() != key):
+        return d
+
+    @staticmethod
+    def _write_secret(f: Path, key: str) -> None:
+        if f.is_symlink():
+            f.unlink()
+        if not f.is_file() or f.read_text(encoding="utf-8").strip() != key:
             fd = os.open(str(f), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(key)
+        try:
+            os.chmod(f, 0o600)
+        except OSError:
+            pass
+
+    def _write_key(self, home: Path) -> None:
+        d = self._secret_dir(home)
+        key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        if key:
+            self._write_secret(d / "deepseek.key", key)
+        tf = d / "tavily.key"
+        tkey = os.environ.get("TAVILY_API_KEY", "").strip()
+        if self.web_search and tkey:
+            self._write_secret(tf, tkey)
+        elif tf.exists() or tf.is_symlink():
+            tf.unlink()            # 不允许检索的任务：连 key 文件都不留
+
+    # ------------------------------------------------------------ 联网检索的次数与记录
+    def _websearch_state(self) -> Path:
+        return self._secret_dir(self.home) / "websearch.json"
+
+    def reset_websearch(self) -> None:
+        """每个任务开始时调用一次（prepare 里）：清零次数、写入上限。"""
+        p = self._websearch_state()
+        p.write_text(json.dumps({"limit": self.web_limit if self.web_search else 0, "used": 0, "log": []}),
+                     encoding="utf-8")
+
+    def websearch_stats(self) -> dict:
+        try:
+            st = json.loads(self._websearch_state().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            st = {}
+        log = st.get("log") or []
+        return {"enabled": self.web_search, "limit": st.get("limit", 0),
+                "search": sum(1 for x in log if x.get("kind") == "search"),
+                "extract": sum(1 for x in log if x.get("kind") == "extract"),
+                "failed": sum(1 for x in log if not x.get("ok")),
+                "log": [{"kind": x.get("kind"), "target": mask(str(x.get("target", ""))), "ok": bool(x.get("ok"))}
+                        for x in log]}
 
     # ------------------------------------------------------------ 事件 → 进度
     def _describe_tool(self, part: dict, step: str) -> None:
@@ -156,6 +216,13 @@ class OpenCodeRunner:
             msg = f"{'写' if tool == 'write' else '改'} {f}"
             if status == "completed" and f:
                 self._edited.add(f)
+        elif tool == "bash" and WEBSEARCH_SCRIPT in (inp.get("command") or ""):
+            cmd = (inp.get("command") or "").split(WEBSEARCH_SCRIPT, 1)[1].strip()
+            what = "读网页" if cmd.startswith("extract") else "联网检索"
+            msg = f"{what} {truncate(cmd.split(' ', 1)[1] if ' ' in cmd else cmd, 120)}"
+            ex = (st.get("metadata") or {}).get("exit")
+            if ex not in (None, 0):
+                msg += f"（失败，返回 {ex}）"
         elif tool == "bash":
             msg = f"运行 {truncate(inp.get('command', ''), 120)}"
             ex = (st.get("metadata") or {}).get("exit")

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.main import create_app
 from app.render import parse_diff, render_markdown
 
 from .conftest import BASE, Client, git
@@ -41,11 +42,30 @@ def test_setup_flow(client: Client):
     r = client.get("/tasks")
     assert r.status_code == 200 and "我的任务" in r.text
 
-    # 已初始化后 /setup 不再可用
-    assert client.get("/setup").status_code == 303
+    # 已初始化后 /setup 不再可用：显示说明页（带登录链接），不静默跳转，也不再显示 token
+    r = client.get("/setup")
+    assert r.status_code == 200 and "管理员已经设置好了" in r.text and BASE + "/login" in r.text
+    assert token not in r.text and 'name="token"' not in r.text
     r = client.post("/setup", {"token": token, "username": "x2", "password": "p" * 10, "password2": "p" * 10})
-    assert r.status_code == 303
+    assert r.status_code == 409 and "管理员已经设置好了" in r.text and token not in r.text
     assert client.db.count_users() == 1
+
+
+def test_setup_logs(tmp_path, settings, caplog):
+    """setup 成功后日志说明 token 已作废；重启时已有账号则说明 setup 入口已关闭，且不再打印 token。"""
+    import logging
+    caplog.set_level(logging.INFO, logger="booksmith")
+    with TestClient(create_app(settings)) as tc:
+        c = Client(tc, tc.app)
+        token = tc.app.state.setup_token
+        c.setup_admin()
+    text = caplog.text
+    assert "setup token 已作废" in text and "/login" in text
+    assert text.count(token) == 1          # 只在首次启动时打印过一次
+    caplog.clear()
+    with TestClient(create_app(settings)) as tc:
+        assert tc.app.state.setup_token is None
+    assert "setup 入口已关闭" in caplog.text and "token：" not in caplog.text
 
 
 # --------------------------------------------------------------- invites
@@ -64,7 +84,13 @@ def test_invite_register(admin_client: Client):
                                 "password2": "pppppppp1"}).status_code == 303
     b = Client(TestClient(admin_client.app), admin_client.app)
     r = b.post("/register", {"code": code, "username": "u2", "password": "pppppppp1", "password2": "pppppppp1"})
-    assert r.status_code == 400 and "邀请码无效" in r.text
+    assert r.status_code == 400 and "邀请码无效" in r.text and "管理员请直接从登录页登录" in r.text
+
+    # 没填邀请码：说清楚注册需要邀请码、管理员该去登录
+    r = b.post("/register", {"code": "", "username": "u4", "password": "pppppppp1", "password2": "pppppppp1"})
+    assert r.status_code == 400 and "注册需要管理员发的邀请码" in r.text
+    assert "注册需要管理员发的邀请码" in b.get("/register").text
+    assert "注册需要管理员发的邀请码" in b.get("/login").text
 
     # 过期的邀请码
     admin_client.db.create_invite("OLD0-OLD0-OLD0", "member", 1, "2000-01-01T00:00:00+08:00")
@@ -282,8 +308,17 @@ def test_newchapter_outline_gate(admin_client: Client, book_repo: Path):
 def test_other_kinds_produce_artifacts(admin_client: Client):
     c = admin_client
     r1 = c.new_task(kind="exercises", title="Ch3 exam", request="出 5 道题", chapter=3, count=5)
-    r2 = c.new_task(kind="slides", title="Ch2 slides", request="做一讲课件", chapter=2, style="学术")
+    r2 = c.new_task(kind="slides", title="Ch2 slides", request="做一讲课件", chapter=2, style="beamer",
+                    pages=4, sections="2.1")
     assert r1.status_code == 303 and r2.status_code == 303
+    # 网页表单的风格、页数、范围要原样传到流水线参数（值与 slides.py 的 STYLES 一致）
+    import json as _json
+    p2 = _json.loads(c.db.get_task(int(r2.headers["location"].rsplit("/", 1)[1]))["params_json"])
+    assert p2["style"] == "beamer" and p2["pages"] == 4 and p2["sections"] == "2.1"
+    assert c.new_task(kind="slides", title="bad", request="x", chapter=2, style="学术").status_code == 400
+    assert c.new_task(kind="slides", title="bad", request="x", chapter=2, pages=99).status_code == 400
+    page = c.get("/tasks/new?kind=slides").text
+    assert 'value="pptmaster-template"' in page and 'name="pages"' in page
     c.worker.run_once()
     c.worker.run_once()
     t1 = int(r1.headers["location"].rsplit("/", 1)[1])

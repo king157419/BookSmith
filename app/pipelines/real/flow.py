@@ -39,8 +39,10 @@ class Job:
 def start_job(ctx: Ctx, skills: list[str], permission: dict | None = None, web_search: bool = False) -> Job:
     """web_search=True：允许本任务用 scripts/websearch.py 联网检索（maintain、newchapter）。"""
     check_cancel(ctx)
-    usage = Usage(balance_before=deepseek_balance())
+    usage = Usage()
     runner = OpenCodeRunner(ctx, usage, permission=permission, web_search=web_search)
+    if runner.use_deepseek_balance:
+        usage.balance_before = deepseek_balance(runner.api_key)
     runner.prepare(skills)
     job = Job(ctx=ctx, usage=usage, runner=runner, base=merge_base(ctx.workdir), start_head=head(ctx.workdir))
     _stage_attachments(job)
@@ -49,7 +51,7 @@ def start_job(ctx: Ctx, skills: list[str], permission: dict | None = None, web_s
 
 def _stage_attachments(job: Job) -> None:
     """附件在 worktree 外面（OpenCode 的 external_directory 被禁止），复制到 .opencode/attachments/。
-    PDF 额外用 pdftotext 抽出文字；图片同时用 -f 附给模型（deepseek-flash 能看图）。"""
+    PDF 额外用 pdftotext 抽出文字；图片通过 -f 附给模型，需要模型支持图片输入。"""
     atts = task_params(job.ctx).get("attachments") or []
     if not atts:
         return
@@ -186,7 +188,8 @@ def fix_checks(job: Job, rep: CheckReport, *, fix_prompt_head: str, title: str) 
 
 # ---------------------------------------------------------------- 收尾
 def finish_usage(job: Job) -> None:
-    job.usage.balance_after = deepseek_balance()
+    if job.usage.balance_before is not None:
+        job.usage.balance_after = deepseek_balance(job.runner.api_key)
     if job.runner.web_search:
         job.usage.web = job.runner.websearch_stats()
         w = job.usage.web

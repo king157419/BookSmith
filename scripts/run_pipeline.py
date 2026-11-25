@@ -9,7 +9,7 @@
     python3 scripts/run_pipeline.py --kind newchapter --id 7 --outline-file outline.md ...   # 阶段二
     python3 scripts/run_pipeline.py --kind slides --param chapter=5 --param pages=5 --param style=pptmaster-template
 
-需要的环境变量与容器里一致：DEEPSEEK_API_KEY、BOOKSMITH_OPENCODE_BIN、BOOKSMITH_BUILD_PREFIX（宿主机用 docker 编译时）等，
+需要的环境变量与容器里一致：BOOKSMITH_MODEL_API_KEY、BOOKSMITH_OPENCODE_BIN、BOOKSMITH_BUILD_PREFIX（宿主机用 docker 编译时）等，
 见 app/pipelines/real/common.py。
 """
 from __future__ import annotations

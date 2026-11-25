@@ -9,7 +9,7 @@
 设计要点（见 docs/04 与调研结论）：
 - 每个步骤一个新会话（不用 -c/-s 续接）：DeepSeek 思考模式下带工具的长会话偶发
   "reasoning_content 必须回传" 的 400 错误，短会话 + 失败换新会话重试最稳。
-- `opencode run --format json --dir <worktree> -m deepseek/deepseek-flash --title ...`，
+- `opencode run --format json --dir <worktree> -m <provider/model> --title ...`，
   stdin 接 /dev/null（否则 opencode 会把 stdin 内容拼进消息）。
 - HOME/XDG 目录隔离在 BOOKSMITH_OPENCODE_HOME 下，配置用 OPENCODE_CONFIG 指定，
   关掉自动更新、LSP 下载、读取 ~/.claude 的兼容逻辑；只把必要的环境变量传给子进程。
@@ -30,10 +30,12 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from ..base import Ctx, PipelineCancelled
 from .common import (DEFAULT_EXCLUDES, Usage, _kill_tree, booksmith_home, data_dir, ensure_excludes,
@@ -42,8 +44,7 @@ from .common import (DEFAULT_EXCLUDES, Usage, _kill_tree, booksmith_home, data_d
 WEBSEARCH_SCRIPT = "/app/scripts/websearch.py"
 WEBSEARCH_RULES = (f"python3 {WEBSEARCH_SCRIPT} search *", f"python3 {WEBSEARCH_SCRIPT} extract *")
 
-# 注意：DEEPSEEK_API_KEY 不放进子进程环境（模型的 bash 工具会继承环境，可从 /proc/self/environ 读到）；
-# 改为写进隔离 HOME 下的 0600 文件，配置里用 {file:~/.booksmith/deepseek.key} 引用。
+# 模型密钥通过 OpenCode 配置引用私有文件，避免被 bash 工具继承。
 PASS_ENV = ("PATH", "LANG", "LC_ALL", "TZ", "TERM",
             "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
             "BOOKSMITH_BUILD_PREFIX", "NPM_CONFIG_REGISTRY", "TEXINPUTS")
@@ -75,10 +76,28 @@ class OpenCodeRunner:
         self.ctx = ctx
         self.usage = usage or Usage()
         self.workdir = Path(ctx.workdir)
-        self.model = model or os.environ.get("BOOKSMITH_MODEL") or "deepseek/deepseek-flash"
+        bundled_config = booksmith_home() / "opencode" / "opencode.json"
+        self.config = env_path("BOOKSMITH_OPENCODE_CONFIG", bundled_config).resolve()
+        selected = model or os.environ.get("BOOKSMITH_MODEL", "").strip()
+        self.base_url = os.environ.get("BOOKSMITH_MODEL_BASE_URL", "").strip()
+        self.api_key = os.environ.get("BOOKSMITH_MODEL_API_KEY", "").strip()
+        if self.base_url and not selected:
+            raise ValueError("设置模型服务地址时，请同时填写 BOOKSMITH_MODEL=服务商/模型ID")
+        self.model = selected or "deepseek/deepseek-flash"
+        self.provider, _, self.model_id = self.model.partition("/")
+        if not self.provider or not self.model_id:
+            raise ValueError("BOOKSMITH_MODEL 格式应为 服务商/模型ID")
+        if self.base_url:
+            url = urlsplit(self.base_url)
+            if url.scheme not in ("http", "https") or not url.hostname:
+                raise ValueError("BOOKSMITH_MODEL_BASE_URL 应为完整的 HTTP(S) API 地址")
+        elif self.provider == "custom" and self.config == bundled_config.resolve():
+            raise ValueError("custom 模型需要填写 BOOKSMITH_MODEL_BASE_URL")
+        self.use_deepseek_balance = (
+            self.provider == "deepseek" and not self.base_url and self.config == bundled_config.resolve()
+        )
         self.bin = os.environ.get("BOOKSMITH_OPENCODE_BIN") or "opencode"
-        self.config = env_path("BOOKSMITH_OPENCODE_CONFIG", booksmith_home() / "opencode" / "opencode.json")
-        self.home = env_path("BOOKSMITH_OPENCODE_HOME", data_dir() / "opencode")
+        self.home = env_path("BOOKSMITH_OPENCODE_HOME", data_dir() / "opencode").resolve()
         self.timeout = timeout or int_env("BOOKSMITH_AGENT_TIMEOUT", 1800)
         self.idle_timeout = idle_timeout or int_env("BOOKSMITH_AGENT_IDLE_TIMEOUT", 600)
         self.web_search = web_search
@@ -116,7 +135,7 @@ class OpenCodeRunner:
             self.ctx.log("准备", f"已加载技能：{', '.join(skills)}")
 
     # ------------------------------------------------------------ 环境
-    def _env(self) -> dict:
+    def _env(self, key_dir: Path) -> dict:
         env = {k: os.environ[k] for k in PASS_ENV if k in os.environ}
         env["PATH"] = env.get("PATH") or "/usr/local/bin:/usr/bin:/bin"
         env["LANG"] = env.get("LANG") or "C.UTF-8"
@@ -139,10 +158,30 @@ class OpenCodeRunner:
             "GIT_COMMITTER_NAME": "BookSmith", "GIT_COMMITTER_EMAIL": "booksmith@localhost",
             "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat", "PAGER": "cat",
         })
+        if os.name == "nt":
+            # OpenCode 使用的 Bun 在 Windows 上需要 SystemRoot 才能发起 HTTP 请求。
+            env.update(SystemRoot=os.environ["SYSTEMROOT"], USERPROFILE=str(h),
+                       TEMP=tempfile.gettempdir(), TMP=tempfile.gettempdir())
         if self.permission:
             env["OPENCODE_PERMISSION"] = json.dumps(self.permission)
-        self._write_key(h)
+        env["OPENCODE_CONFIG_CONTENT"] = json.dumps(self._model_config(key_dir))
+        self._write_search_key(h)
         return env
+
+    def _model_config(self, key_dir: Path) -> dict:
+        options = {}
+        provider = {"options": options}
+        if self.base_url:
+            options["baseURL"] = self.base_url
+        if self.provider == "custom" and self.base_url:
+            provider["npm"] = "@ai-sdk/openai-compatible"
+            provider["models"] = {self.model_id: {"name": self.model_id, "tool_call": True}}
+
+        if self.api_key:
+            key_file = key_dir / "model.key"
+            self._write_secret(key_file, self.api_key)
+            options["apiKey"] = "{file:" + key_file.resolve().as_posix() + "}"
+        return {"model": self.model, "small_model": self.model, "provider": {self.provider: provider}}
 
     @staticmethod
     def _secret_dir(home: Path) -> Path:
@@ -167,11 +206,8 @@ class OpenCodeRunner:
         except OSError:
             pass
 
-    def _write_key(self, home: Path) -> None:
+    def _write_search_key(self, home: Path) -> None:
         d = self._secret_dir(home)
-        key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-        if key:
-            self._write_secret(d / "deepseek.key", key)
         tf = d / "tavily.key"
         tkey = os.environ.get("TAVILY_API_KEY", "").strip()
         if self.web_search and tkey:
@@ -246,7 +282,7 @@ class OpenCodeRunner:
         self.ctx.log(step, mask(msg))
 
     # ------------------------------------------------------------ 单次运行
-    def _run_once(self, prompt: str, title: str, files: list[Path], step: str) -> RunResult:
+    def _run_once(self, prompt: str, title: str, files: list[Path], step: str, env: dict) -> RunResult:
         self._n += 1
         self.log_dir.mkdir(parents=True, exist_ok=True)
         ev_path = self.log_dir / f"opencode-{self._n:02d}.jsonl"
@@ -266,7 +302,7 @@ class OpenCodeRunner:
         cur_texts: dict[str, str] = {}
         errors: list[str] = []
         try:
-            proc = subprocess.Popen(cmd, cwd=str(self.workdir), env=self._env(), stdin=subprocess.DEVNULL,
+            proc = subprocess.Popen(cmd, cwd=str(self.workdir), env=env, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
         except FileNotFoundError:
             res.error = f"找不到 OpenCode 可执行文件：{self.bin}"
@@ -312,7 +348,7 @@ class OpenCodeRunner:
                     res.tool_errors += 1
                 self._describe_tool(part, step)
             elif t == "text":
-                txt = part.get("text") or ""
+                txt = mask(part.get("text") or "")
                 cur_texts[part.get("id", "")] = txt
                 if txt.strip():
                     res.all_text.append(txt)
@@ -394,7 +430,9 @@ class OpenCodeRunner:
                      "在此基础上继续完成，不要重复已经做完的部分。）\n\n" + prompt)
             self.ctx.log(step, f"启动 OpenCode 会话（{self.model}，第 {attempt} 次）" if attempt > 1
                          else f"启动 OpenCode 会话（{self.model}）")
-            r = self._run_once(p, title if attempt == 1 else f"{title}（重试{attempt - 1}）", files, step)
+            with tempfile.TemporaryDirectory(prefix="booksmith-model-") as key_dir:
+                env = self._env(Path(key_dir))
+                r = self._run_once(p, title if attempt == 1 else f"{title}（重试{attempt - 1}）", files, step, env)
             r.attempts = attempt
             self.usage.add(r)
             tk = r.tokens

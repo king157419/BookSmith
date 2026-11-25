@@ -1,7 +1,7 @@
 # 树莓派上运行 BookSmith（网页 + 任务队列 + 真实流水线）。
 #
 # 目录约定（~/BookSmith 是 BookSmith 仓库的克隆）：
-#   ~/BookSmith/.env      DEEPSEEK_API_KEY、SECRET_KEY 等（权限 600，不进仓库）
+#   ~/BookSmith/.env      BOOKSMITH_MODEL_API_KEY、SECRET_KEY 等（权限 600，不进仓库）
 #   ~/BookSmith/data      SQLite、任务产物、worktree、OpenCode 会话库、课件模板包（slide-templates/<名字>/）
 #   ~/BookSmith/book      书稿仓库主克隆（master）
 #   ~/BookSmith/skills    技能（仓库自带，只读挂载；改技能后 git pull 即可，不用重建镜像）

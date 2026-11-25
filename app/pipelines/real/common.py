@@ -73,15 +73,14 @@ _SECRET_RE = re.compile(r"(sk-|tvly-|ghp_|github_pat_)[A-Za-z0-9_\-]{6,}")
 
 
 def mask(text: str) -> str:
-    """把 sk-xxxx、tvly-xxxx 等疑似密钥打码；再把当前进程里的 DEEPSEEK_API_KEY / TAVILY_API_KEY 原文替换掉。"""
+    """隐藏已配置的模型和检索密钥，以及日志中其他疑似密钥的片段。"""
     if not text:
         return text
-    text = _SECRET_RE.sub(lambda m: m.group(1) + "***", text)
-    for name in ("DEEPSEEK_API_KEY", "TAVILY_API_KEY"):
-        key = os.environ.get(name, "")
+    for name in ("BOOKSMITH_MODEL_API_KEY", "TAVILY_API_KEY"):
+        key = os.environ.get(name, "").strip()
         if len(key) >= 8:
             text = text.replace(key, "***")
-    return text
+    return _SECRET_RE.sub(lambda m: m.group(1) + "***", text)
 
 
 # ---------------------------------------------------------------- 取消检查
@@ -308,8 +307,7 @@ DEFAULT_EXCLUDES = [
 
 
 # ---------------------------------------------------------------- DeepSeek 余额（估算花费）
-def deepseek_balance() -> float | None:
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
+def deepseek_balance(key: str) -> float | None:
     if not key:
         return None
     try:

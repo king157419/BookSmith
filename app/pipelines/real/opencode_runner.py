@@ -75,8 +75,8 @@ class OpenCodeRunner:
         self.ctx = ctx
         self.usage = usage or Usage()
         self.workdir = Path(ctx.workdir)
-        self.model = model or os.environ.get("BOOKSMITH_MODEL", "deepseek/deepseek-flash")
-        self.bin = os.environ.get("BOOKSMITH_OPENCODE_BIN", "opencode")
+        self.model = model or os.environ.get("BOOKSMITH_MODEL") or "deepseek/deepseek-flash"
+        self.bin = os.environ.get("BOOKSMITH_OPENCODE_BIN") or "opencode"
         self.config = env_path("BOOKSMITH_OPENCODE_CONFIG", booksmith_home() / "opencode" / "opencode.json")
         self.home = env_path("BOOKSMITH_OPENCODE_HOME", data_dir() / "opencode")
         self.timeout = timeout or int_env("BOOKSMITH_AGENT_TIMEOUT", 1800)
@@ -118,8 +118,8 @@ class OpenCodeRunner:
     # ------------------------------------------------------------ 环境
     def _env(self) -> dict:
         env = {k: os.environ[k] for k in PASS_ENV if k in os.environ}
-        env.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
-        env.setdefault("LANG", "C.UTF-8")
+        env["PATH"] = env.get("PATH") or "/usr/local/bin:/usr/bin:/bin"
+        env["LANG"] = env.get("LANG") or "C.UTF-8"
         h = self.home
         for sub in ("", ".config", ".local/share", ".cache", ".local/state"):
             (h / sub).mkdir(parents=True, exist_ok=True)

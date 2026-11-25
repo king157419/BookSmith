@@ -54,7 +54,7 @@ def skills_dir() -> Path:
 
 
 def data_dir() -> Path:
-    return Path(os.environ.get("DATA_DIR", "/data"))
+    return Path(os.environ.get("DATA_DIR", "/data")).absolute()
 
 
 def pptmaster_dir() -> Path:

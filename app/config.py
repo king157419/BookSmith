@@ -52,10 +52,10 @@ class Settings:
     def from_env(cls) -> "Settings":
         env = os.environ
         return cls(
-            base_path=normalize_base_path(env.get("BASE_PATH")),
-            port=int(env.get("PORT", "8100")),
-            data_dir=Path(env.get("DATA_DIR", "/data")),
-            book_repo_dir=Path(env.get("BOOK_REPO_DIR", "/book")),
+            base_path=env.get("BASE_PATH") or cls.base_path,
+            port=int(env.get("PORT") or cls.port),
+            data_dir=Path(env.get("DATA_DIR", cls.data_dir)).absolute(),
+            book_repo_dir=Path(env.get("BOOK_REPO_DIR") or cls.book_repo_dir),
             book_git_remote=env.get("BOOK_GIT_REMOTE", "").strip(),
             book_base_branch=env.get("BOOK_BASE_BRANCH", "master").strip() or "master",
             secret_key=env.get("SECRET_KEY", ""),

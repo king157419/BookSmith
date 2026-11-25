@@ -54,7 +54,7 @@ def minimal_pdf(lines: list[str]) -> bytes:
 class FakePipeline:
     def __init__(self, kind: str):
         self.kind = kind
-        self.delay = float(os.environ.get("BOOKSMITH_FAKE_DELAY", "0.5"))
+        self.delay = float(os.environ.get("BOOKSMITH_FAKE_DELAY") or "0.5")
 
     # ---- 小工具 ----
     def _step(self, ctx: Ctx, step: str, message: str) -> None:

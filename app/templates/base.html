@@ -6,18 +6,20 @@
 <meta name="csrf-token" content="{{ csrf }}">
 <title>{% block title %}BookSmith{% endblock %} · BookSmith 教材助理</title>
 <link rel="stylesheet" href="{{ base }}/static/style.css">
-<link rel="icon" href="{{ base }}/static/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="{{ base }}/static/shu-emblem.png" type="image/png">
 <script src="{{ base }}/static/app.js" defer></script>
 </head>
 <body>
+<a class="skip-link" href="#main">跳到主要内容</a>
 <header class="topbar">
   <div class="topbar-inner">
     <a class="brand" href="{{ base }}/">
-      <span class="brand-mark" aria-hidden="true">B</span>
-      <span class="brand-text">BookSmith<small>教材助理</small></span>
+      <img class="school-emblem" src="{{ base }}/static/shu-emblem.png" width="36" height="45" alt="上海大学校徽">
+      <span class="school-name">上海大学<small lang="en">Shanghai University</small></span>
+      <span class="product-name" lang="en">BookSmith</span>
     </a>
     {% if user %}
-    <nav class="nav">
+    <nav class="nav" aria-label="主导航">
       <a href="{{ base }}/tasks" class="{{ 'active' if path.startswith('/tasks') and not path.startswith('/tasks/new') }}">任务</a>
       <a href="{{ base }}/tasks/new" class="{{ 'active' if path.startswith('/tasks/new') }}">新建</a>
       {% if user.role == 'admin' %}<a href="{{ base }}/admin" class="{{ 'active' if path.startswith('/admin') }}">管理</a>{% endif %}
@@ -29,13 +31,18 @@
         <button type="submit" class="btn-link">退出</button>
       </form>
     </div>
+    {% else %}
+    <nav class="guest-nav" aria-label="账号导航">
+      <a href="{{ base }}/login" {{ 'aria-current=page' if path == '/login' }}>登录</a>
+      <a href="{{ base }}/register" {{ 'aria-current=page' if path == '/register' }}>邀请码注册</a>
+    </nav>
     {% endif %}
   </div>
 </header>
-<main class="container">
+<main class="container" id="main">
   {% if flash %}<div class="flash flash-{{ flash.level }}" role="status">{{ flash.text }}</div>{% endif %}
   {% block content %}{% endblock %}
 </main>
-<footer class="footer">BookSmith · 智能体只在自己的分支上改稿，审核通过才合并</footer>
+<footer class="footer"><strong lang="en">BookSmith</strong><span>书稿在独立分支中修改，审核通过后合并。</span></footer>
 </body>
 </html>

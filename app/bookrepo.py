@@ -40,8 +40,8 @@ def git(args: list[str], cwd: Path | str, check: bool = True, timeout: int = 300
     cmd = ["git", "-c", "core.quotepath=false", "-c", f"user.name={GIT_NAME}",
            "-c", f"user.email={GIT_EMAIL}", *args]
     env = dict(os.environ)
-    env.setdefault("GIT_TERMINAL_PROMPT", "0")
-    env["LC_ALL"] = env.get("LC_ALL", "C.UTF-8")
+    env["GIT_TERMINAL_PROMPT"] = env.get("GIT_TERMINAL_PROMPT") or "0"
+    env["LC_ALL"] = env.get("LC_ALL") or "C.UTF-8"
     p = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=env, timeout=timeout)
     if check and p.returncode != 0:

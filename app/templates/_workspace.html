@@ -1,0 +1,35 @@
+{% macro cover(compact=false) -%}
+<div class="book-cover{{ ' compact' if compact }}">
+  <div class="cover-content">
+    <span class="cover-wordmark" lang="en">BookSmith</span>
+    <p class="cover-title">教材协作<br>工作台<span aria-hidden="true">.</span></p>
+    <p class="cover-note">组织书稿、跟进修改，<br>在一处完成教材编写与审核。</p>
+  </div>
+  <span class="cover-caption">上海大学 · 校本部图书馆</span>
+</div>
+{%- endmacro %}
+
+{% macro shortcuts() -%}
+{# 工具卡摄影原图（Unsplash），按下方任务顺序排列：
+   https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8
+   https://images.unsplash.com/photo-1434030216411-0b793f4b4173
+   https://images.unsplash.com/photo-1505373877841-8d25f7d46678
+   https://images.unsplash.com/photo-1455390582262-044cdead277a #}
+<section class="tools-section" aria-label="教材工具">
+  <h2>教材工具</h2>
+  <div class="tool-grid">
+  {% for kind, title, hint in [
+    ('maintain', '书稿维护', '修订正文、数据与术语'),
+    ('exercises', '章节习题', '生成学生版与教师版习题'),
+    ('slides', '教学课件', '按章节制作演示文稿'),
+    ('newchapter', '新章撰写', '从大纲开始编写新章节')
+  ] %}
+    {% set target = base ~ '/tasks/new?kind=' ~ kind %}
+    <a class="tool-card spot" href="{{ target if user else base ~ '/login?next=' ~ (target|urlencode) }}">
+      <img class="tool-photo" src="{{ base }}/static/tools/{{ kind }}.webp" alt="" width="540" height="216" decoding="async">
+      <span class="tool-description"><strong>{{ title }}</strong><small>{{ hint }}</small></span>
+    </a>
+  {% endfor %}
+  </div>
+</section>
+{%- endmacro %}

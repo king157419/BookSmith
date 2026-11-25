@@ -9,7 +9,7 @@
     python3 scripts/run_pipeline.py --kind newchapter --id 7 --outline-file outline.md ...   # 阶段二
     python3 scripts/run_pipeline.py --kind slides --param chapter=5 --param pages=5 --param style=pptmaster-template
 
-需要的环境变量与容器里一致：DEEPSEEK_API_KEY、BOOKSMITH_OPENCODE_BIN、BOOKSMITH_BUILD_PREFIX（宿主机用 docker 编译时）等，
+需要的环境变量与容器里一致：BOOKSMITH_MODEL_API_KEY、BOOKSMITH_OPENCODE_BIN、BOOKSMITH_BUILD_PREFIX（宿主机用 docker 编译时）等，
 见 app/pipelines/real/common.py。
 """
 from __future__ import annotations
@@ -38,8 +38,8 @@ def parse_value(v: str):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--kind", required=True, choices=["maintain", "exercises", "slides", "newchapter"])
-    ap.add_argument("--repo", default=os.environ.get("BOOK_REPO_DIR", "/book"))
-    ap.add_argument("--data", default=os.environ.get("DATA_DIR", "/data"))
+    ap.add_argument("--repo")
+    ap.add_argument("--data")
     ap.add_argument("--id", type=int, default=int(time.time()) % 100000)
     ap.add_argument("--title", default="命令行测试任务")
     ap.add_argument("--request", default="")
@@ -54,12 +54,13 @@ def main() -> int:
 
     if a.env_file:
         load_dotenv(a.env_file)
-    os.environ.setdefault("DATA_DIR", a.data)
+    data = Path(a.data if a.data is not None else os.environ.get("DATA_DIR", "/data")).absolute()
+    repo_dir = a.repo or os.environ.get("BOOK_REPO_DIR") or "/book"
+    os.environ["DATA_DIR"] = str(data)
     from app.pipelines.real import PIPELINES   # 读完环境变量再导入
     pipe = {p.kind: p for p in PIPELINES}[a.kind]
 
-    data = Path(a.data)
-    repo = BookRepo(a.repo, data / "worktrees")
+    repo = BookRepo(repo_dir, data / "worktrees")
     request = Path(a.request_file).read_text(encoding="utf-8") if a.request_file else a.request
     params = {}
     for kv in a.param:

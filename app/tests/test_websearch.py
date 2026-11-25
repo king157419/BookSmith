@@ -132,7 +132,7 @@ def test_401_not_retried_and_bad_input(home, monkeypatch, capsys):
     assert "401" in capsys.readouterr().err
     # 只接受 http(s) 地址（file:// 等直接拒绝，不占次数）
     used = _state(home)["used"]
-    assert ws.main(["extract", "file:///data/opencode/.booksmith/deepseek.key"]) == 2
+    assert ws.main(["extract", "file:///data/opencode/.booksmith/tavily.key"]) == 2
     assert _state(home)["used"] == used
     # 未知参数（比如想指定别的 key 文件）→ 用法错误
     with pytest.raises(SystemExit) as e:
@@ -161,7 +161,7 @@ def _runner(tmp_path, monkeypatch, web: bool):
     from app.pipelines.base import Ctx
     from app.pipelines.real.opencode_runner import WEBSEARCH_RULES, OpenCodeRunner
     monkeypatch.setenv("BOOKSMITH_OPENCODE_HOME", str(tmp_path / "ochome"))
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "FAKE-DEEPSEEK-aaaaaaaa")
+    monkeypatch.setenv("BOOKSMITH_MODEL_API_KEY", "FAKE-MODEL-aaaaaaaa")
     monkeypatch.setenv("TAVILY_API_KEY", "FAKE-TAVILY-bbbbbbbb")
     wd = tmp_path / "wt"
     wd.mkdir(exist_ok=True)
@@ -172,10 +172,10 @@ def _runner(tmp_path, monkeypatch, web: bool):
 
 def test_runner_key_files_and_permission(tmp_path, monkeypatch):
     r, rules = _runner(tmp_path, monkeypatch, web=True)
-    env = r._env()
+    env = r._env(tmp_path)
     sec = tmp_path / "ochome" / ".booksmith"
     assert (sec / "tavily.key").read_text(encoding="utf-8") == "FAKE-TAVILY-bbbbbbbb"
-    assert "TAVILY_API_KEY" not in env and "DEEPSEEK_API_KEY" not in env
+    assert "TAVILY_API_KEY" not in env and "BOOKSMITH_MODEL_API_KEY" not in env
     assert "FAKE-TAVILY" not in json.dumps(env) and "OPENCODE_PERMISSION" not in env
     if os.name == "posix":
         assert (os.stat(sec / "tavily.key").st_mode & 0o777) == 0o600
@@ -187,7 +187,7 @@ def test_runner_key_files_and_permission(tmp_path, monkeypatch):
 
     # 不允许检索的任务（习题、课件）：删 key 文件，并把两条放行规则覆盖成 deny
     r2, _ = _runner(tmp_path, monkeypatch, web=False)
-    env2 = r2._env()
+    env2 = r2._env(tmp_path)
     assert not (sec / "tavily.key").exists()
     perm = json.loads(env2["OPENCODE_PERMISSION"])
     assert all(perm["bash"][x] == "deny" for x in rules)

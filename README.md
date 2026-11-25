@@ -102,9 +102,23 @@ app/
 
 ## 接入真实流水线
 
-接口说明见 `app/pipelines/base.py` 顶部的文档字符串。简单来说：
+在 `.env` 设置 `BOOKSMITH_PIPELINES=real`，并配置书稿仓库、OpenCode 及对应任务的编译工具。四种真实流水线都使用同一套模型配置。
 
-1. 写 `app/pipelines/real.py`（或 `real/` 包），里面放 `PIPELINES = [MaintainPipeline(), ExercisesPipeline(), SlidesPipeline(), NewChapterPipeline()]`，每个对象都有 `kind` 属性和 `run(ctx) -> Result` 方法。
-2. 设 `BOOKSMITH_PIPELINES=real`。
+| 接入方式 | `BOOKSMITH_MODEL` | `BOOKSMITH_MODEL_API_KEY` | `BOOKSMITH_MODEL_BASE_URL` |
+|---|---|---|---|
+| 默认 DeepSeek 服务 | 留空，默认 `deepseek/deepseek-flash` | 填 DeepSeek 的密钥 | 留空 |
+| OpenCode 内置服务商 | 例如 `anthropic/claude-sonnet-4-6`，使用当前 OpenCode 版本识别且账号有权调用的模型 | 填该服务商的密钥 | 通常留空 |
+| OpenAI 兼容的 Chat Completions 接口 | `custom/模型ID`，斜杠后的内容原样发给接口 | 填该接口的密钥，免鉴权本地服务可留空 | 填服务商提供的完整基础地址 |
+
+例如，使用阿里云百炼北京地域的按量付费千问接口时，填写以下配置，并将占位文字替换为自己的密钥。
+
+```dotenv
+BOOKSMITH_PIPELINES=real
+BOOKSMITH_MODEL=custom/qwen-plus
+BOOKSMITH_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+BOOKSMITH_MODEL_API_KEY=你的百炼API密钥
+```
+
+模型需要支持工具调用，以便 OpenCode 读写书稿。若需图片输入，请选择支持图片的模型；自定义接口可在 `BOOKSMITH_OPENCODE_CONFIG` 对应的 OpenCode 配置中声明模型的输入模态和上下文长度。修改 `.env` 后重启应用，任务日志会显示本次使用的模型。Docker Compose 部署需重建应用容器以重新载入环境变量。
 
 worker 负责的事：建分支和 worktree、在运行结束后自动提交没提交的改动、生成相对 master 的 `changes.diff`、把 `out_dir` 外的产物复制进来、处理异常和取消。流水线负责的事：在 `ctx.workdir` 里改稿并提交、把产物写进 `ctx.out_dir`、用 `ctx.log(step, msg)` 报告进度、在循环里检查 `ctx.cancelled()`。`newchapter` 第一轮返回 `awaiting_outline` 时，`summary` 就是大纲草稿；用户确认后，`ctx.task["outline"]` 非空，任务再次进入 `run`。

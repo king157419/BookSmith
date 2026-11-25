@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "_workspace.html" import cover, shortcuts with context %}
+{% block content %}
+<div class="auth-layout">
+  {{ cover() }}
+  <section class="auth-card spot">
+    {% block auth_form %}{% endblock %}
+  </section>
+</div>
+{% block auth_tools %}{% endblock %}
+{% endblock %}

@@ -16,7 +16,7 @@
     {% for k in KINDS %}
     <label class="kind-option">
       <input type="radio" name="kind" value="{{ k }}" {{ 'checked' if form.kind == k }} required>
-      <span class="kind-card">
+      <span class="kind-card spot">
         <b>{{ KIND_LABELS[k] }}</b>
         <span class="small muted">{{ KIND_HINTS[k] }}</span>
       </span>

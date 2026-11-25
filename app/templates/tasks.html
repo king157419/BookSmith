@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import status_badge, kind_tag with context %}
+{% from "_workspace.html" import cover, shortcuts with context %}
 {% block title %}任务{% endblock %}
 {% block content %}
+{{ cover(true) }}
+{{ shortcuts() }}
 <div class="page-head">
   <div>
     <h1>{{ '全部任务' if scope == 'all' else '我的任务' }}</h1>
@@ -33,7 +36,7 @@
 <ul class="task-list">
   {% for t in tasks %}
   <li>
-    <a class="task-row" href="{{ base }}/tasks/{{ t.id }}">
+    <a class="task-row spot" href="{{ base }}/tasks/{{ t.id }}">
       <div class="task-row-main">
         <div class="task-row-title">
           <span class="task-id">#{{ t.id }}</span>
@@ -53,8 +56,13 @@
 </ul>
 {% else %}
 <div class="empty">
+  {% if status %}
+  <p>没有处于「{{ STATUS_LABELS[status] }}」的任务。</p>
+  <a class="btn" href="{{ base }}/tasks{{ '?scope=all' if scope == 'all' }}">查看全部状态</a>
+  {% else %}
   <p>还没有任务。</p>
   <a class="btn btn-primary" href="{{ base }}/tasks/new">提第一个需求</a>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

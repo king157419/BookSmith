@@ -1,23 +1,21 @@
-{% extends "base.html" %}
+{% extends "auth_base.html" %}
 {% from "_macros.html" import csrf_field, form_error with context %}
 {% block title %}登录{% endblock %}
-{% block content %}
-<section class="auth-card">
-  <h1>登录</h1>
-  <p class="muted">提需求、看进度、审核改动。</p>
+{% block auth_form %}
+  <h1>登录工作台</h1>
+  <p class="muted">使用你的 BookSmith 账号继续。</p>
   {{ form_error(error) }}
   <form method="post" action="{{ base }}/login" class="form">
     {{ csrf_field() }}
     <input type="hidden" name="next" value="{{ next }}">
     <label>用户名
-      <input name="username" required value="{{ username or '' }}" autocomplete="username" autofocus>
+      <input name="username" required value="{{ username or '' }}" autocomplete="username" placeholder="输入用户名" autofocus>
     </label>
     <label>密码
-      <input name="password" type="password" required autocomplete="current-password">
+      <input name="password" type="password" required autocomplete="current-password" placeholder="输入密码">
     </label>
     <button type="submit" class="btn btn-primary btn-block">登录</button>
   </form>
-  <p class="muted small center">管理员（初始化时设置的账号）和已注册的成员都在这里登录。</p>
-  <p class="muted small center">没有账号？注册需要管理员发的邀请码，拿到后 <a href="{{ base }}/register">注册</a>。</p>
-</section>
+  <p class="muted small auth-help">注册需要管理员发的邀请码。<a href="{{ base }}/register">前往注册 →</a></p>
 {% endblock %}
+{% block auth_tools %}{{ shortcuts() }}{% endblock %}

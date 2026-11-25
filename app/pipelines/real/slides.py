@@ -67,7 +67,7 @@ class SlidesPipeline:
         style = str(params.get("style") or "").strip() or "pptmaster-template"
         if style not in STYLES:
             style = "pptmaster-template"
-        tpl_name = str(params.get("template") or os.environ.get("BOOKSMITH_SLIDES_TEMPLATE", "shu"))
+        tpl_name = str(params.get("template") or os.environ.get("BOOKSMITH_SLIDES_TEMPLATE") or "shu")
         tpl_dir = templates_root() / tpl_name
         notes_start = []
         if style == "pptmaster-template" and not (tpl_dir / "template.json").is_file():

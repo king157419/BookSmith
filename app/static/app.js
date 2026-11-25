@@ -12,6 +12,16 @@
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
+  var spotlight = window.matchMedia("(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)");
+  $all(".spot").forEach(function (card) {
+    card.addEventListener("pointermove", function (event) {
+      if (!spotlight.matches) return;
+      var bounds = card.getBoundingClientRect();
+      card.style.setProperty("--light-x", (event.clientX - bounds.left) + "px");
+      card.style.setProperty("--light-y", (event.clientY - bounds.top) + "px");
+    });
+  });
+
   // ---------- 确认对话框 + 防重复提交 ----------
   document.addEventListener("submit", function (e) {
     var form = e.target;
